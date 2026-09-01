@@ -34,3 +34,4 @@ py -3.11 -m venv .venv
 
 - [V1 产品与技术规格](docs/v1-specification.md)
 - [V1 需求访谈记录](docs/requirements-interview-log.md)
+- [使用指南](docs/user-guide.md)
