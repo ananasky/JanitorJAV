@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "janitorjav"
+version = "0.1.0"
+description = "Local media-library scanner and review tool"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "JanitorJAV contributors" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/janitorjav"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.coverage.run]
+branch = true
+source = ["janitorjav"]
+

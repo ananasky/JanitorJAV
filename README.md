@@ -8,7 +8,27 @@ JanitorJAV 是一个面向 JAV 媒体库的本地批量扫描与维护工具。
 
 ## 当前状态
 
-项目目前处于需求和方案设计阶段，尚未开始业务功能开发。
+项目已进入开发阶段。当前已完成第一批可测试的扫描核心：
+
+- MDC 资产、CD 和 VR 文件名解析及分组；
+- 固定秒数与百分位抽帧点计算；
+- 点分文本、两字符后缀和 IPv4 检测；
+- 固定同级隔离目录的路径校验；
+- ffprobe 元数据和 FFmpeg 抽帧适配层；
+- 本地 OCR 引擎协议和扫描标签管线；
+- 可恢复 JSONL 读写基础。
+
+Windows CUDA OCR、任务调度和 Web 审核界面仍在开发中。
+
+## 本地开发
+
+需要 Python 3.11 或更高版本。
+
+```powershell
+py -3.11 -m venv .venv
+.venv\Scripts\python -m pip install -e ".[dev]"
+.venv\Scripts\python -m pytest
+```
 
 ## 文档
 
