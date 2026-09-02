@@ -32,3 +32,16 @@ def test_probe_rejects_incomplete_output(tmp_path: Path) -> None:
     with pytest.raises(MediaToolError, match="incomplete metadata"):
         FFmpegTools(runner=runner).probe(tmp_path / "broken.mp4")
 
+
+def test_extract_frame_uses_fast_input_seek(tmp_path: Path) -> None:
+    video = tmp_path / "video.mp4"
+    output = tmp_path / "frame.jpg"
+
+    def runner(command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+        assert command.index("-ss") < command.index("-i")
+        Path(command[-1]).write_bytes(b"jpeg")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    FFmpegTools(runner=runner).extract_frame(video, 123.456, output)
+
+    assert output.read_bytes() == b"jpeg"

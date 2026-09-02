@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from .sampling import calculate_sample_points
 class ScanPipelineConfig:
     high_confidence_threshold: float = 0.75
     short_video_seconds: float = 180.0
+    frame_workers: int = 4
 
 
 def stable_asset_id(group: AssetGroup) -> str:
@@ -68,16 +70,31 @@ class ScanPipeline:
         video_evidence_root = self.evidence_root / stable_asset_id(group) / _video_id(video)
         extracted: list[tuple[FrameEvidence, Path]] = []
 
+        pending: list[tuple[FrameEvidence, Path]] = []
         for index, point in enumerate(calculate_sample_points(video.duration_seconds), start=1):
             path = video_evidence_root / f"{index:02d}-{point.timestamp_seconds:.3f}.jpg"
             evidence = FrameEvidence(point.timestamp_seconds, list(point.sources), image_path=path)
             video.frames.append(evidence)
-            try:
-                self.media_tools.extract_frame(video.path, point.timestamp_seconds, path)
-            except MediaToolError:
-                video.tags.add(Tag.FRAME_EXTRACT_FAILED)
-                continue
-            extracted.append((evidence, path))
+            pending.append((evidence, path))
+
+        worker_count = max(1, min(self.config.frame_workers, len(pending)))
+        with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="janitorjav-frame") as executor:
+            futures = [
+                executor.submit(
+                    self.media_tools.extract_frame,
+                    video.path,
+                    evidence.timestamp_seconds,
+                    path,
+                )
+                for evidence, path in pending
+            ]
+            for item, future in zip(pending, futures, strict=True):
+                try:
+                    future.result()
+                except MediaToolError:
+                    video.tags.add(Tag.FRAME_EXTRACT_FAILED)
+                    continue
+                extracted.append(item)
 
         if not extracted:
             return

@@ -17,7 +17,7 @@ from .models import ReviewStatus
 from .naming import DEFAULT_VIDEO_EXTENSIONS, discover_asset_groups
 from .ocr import OCREngine
 from .paths import quarantine_target, validate_or_create_quarantine
-from .pipeline import ScanPipeline, stable_asset_id
+from .pipeline import ScanPipeline, ScanPipelineConfig, stable_asset_id
 from .serialization import group_to_dict, snapshot_paths
 
 
@@ -87,8 +87,15 @@ class TaskState:
 
 
 class TaskManager:
-    def __init__(self, ocr_engine: OCREngine, workspace_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        ocr_engine: OCREngine,
+        workspace_root: Path | None = None,
+        *,
+        frame_workers: int = 4,
+    ) -> None:
         self.ocr_engine = ocr_engine
+        self.frame_workers = max(1, frame_workers)
         self.workspace_root = workspace_root or default_workspace_root()
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self._tasks: dict[str, TaskState] = {}
@@ -160,6 +167,7 @@ class TaskManager:
         thread = self._threads.get(task_id)
         if task.status == "paused" and (thread is None or not thread.is_alive()):
             task.status = "cancelled"
+            task.stop_requested = False
         self._save_task(task)
         return task
 
@@ -478,13 +486,19 @@ class TaskManager:
             completed_ids = set(completed_assets)
             task.completed = len(completed_ids)
             task.tagged = sum(bool(record.get("tags")) for record in completed_assets.values())
-            pipeline = ScanPipeline(FFmpegTools(), self.ocr_engine, task.workspace / "evidence")
+            pipeline = ScanPipeline(
+                FFmpegTools(),
+                self.ocr_engine,
+                task.workspace / "evidence",
+                config=ScanPipelineConfig(frame_workers=self.frame_workers),
+            )
             for group in groups:
                 asset_id = stable_asset_id(group)
                 if asset_id in completed_ids:
                     continue
                 if task.stop_requested:
                     task.status = "cancelled"
+                    task.stop_requested = False
                     break
                 while task.pause_requested and not task.stop_requested:
                     task.status = "paused"
@@ -492,6 +506,7 @@ class TaskManager:
                     time.sleep(0.25)
                 if task.stop_requested:
                     task.status = "cancelled"
+                    task.stop_requested = False
                     break
                 task.status = "running"
                 task.current_file = str(group.directory / group.group_key)

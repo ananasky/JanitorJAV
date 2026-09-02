@@ -1,9 +1,11 @@
+import threading
+import time
 from pathlib import Path
 
 from janitorjav.media import VideoMetadata
 from janitorjav.models import AssetGroup, AssetGroupType, Tag, VideoAsset
 from janitorjav.ocr import OCRLine
-from janitorjav.pipeline import ScanPipeline
+from janitorjav.pipeline import ScanPipeline, ScanPipelineConfig
 
 
 class FakeMediaTools:
@@ -74,3 +76,32 @@ def test_vr_is_probed_but_not_sampled(tmp_path: Path) -> None:
     assert video.frames == []
     assert group.tags == {Tag.VR_VIDEO}
 
+
+def test_frame_extraction_uses_configured_parallelism(tmp_path: Path) -> None:
+    class ConcurrentMediaTools(FakeMediaTools):
+        def __init__(self) -> None:
+            super().__init__()
+            self.active = 0
+            self.max_active = 0
+            self.lock = threading.Lock()
+
+        def extract_frame(self, video_path: Path, timestamp_seconds: float, output_path: Path) -> None:
+            with self.lock:
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+            time.sleep(0.02)
+            super().extract_frame(video_path, timestamp_seconds, output_path)
+            with self.lock:
+                self.active -= 1
+
+    media = ConcurrentMediaTools()
+    pipeline = ScanPipeline(
+        media,
+        FakeOCR(),
+        tmp_path / "evidence",
+        config=ScanPipelineConfig(frame_workers=3),
+    )
+
+    pipeline.scan_group(_group(tmp_path))
+
+    assert media.max_active == 3

@@ -17,6 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8765, type=int)
     parser.add_argument("--device", default="gpu:0", help="PaddleOCR device, e.g. gpu:0 or cpu")
+    parser.add_argument("--frame-workers", default=4, type=int, help="Concurrent FFmpeg frame extractions")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--pid-file", type=Path)
     return parser
@@ -25,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     engine = PaddleOCREngine(device=args.device)
-    manager = TaskManager(engine)
+    manager = TaskManager(engine, frame_workers=args.frame_workers)
     app = create_app(manager)
     if not args.no_browser:
         webbrowser.open(f"http://{args.host}:{args.port}")
