@@ -201,6 +201,7 @@ class TaskManager:
         max_duration: float | None = None,
         min_width: int | None = None,
         min_height: int | None = None,
+        ocr_keyword: str | None = None,
     ) -> dict[str, Any]:
         task = self.get_task(task_id)
         records = list(read_jsonl(task.workspace / "assets.jsonl"))
@@ -238,6 +239,9 @@ class TaskManager:
             values = [record for record in values if (record.get("max_width") or 0) >= min_width]
         if min_height is not None:
             values = [record for record in values if (record.get("max_height") or 0) >= min_height]
+        if ocr_keyword:
+            keyword = ocr_keyword.casefold()
+            values = [record for record in values if _record_contains_ocr(record, keyword)]
         status_counts = {
             review_status.value: sum(
                 record.get("review_status") == review_status.value for record in values
@@ -289,7 +293,7 @@ class TaskManager:
         self,
         task_id: str,
         *,
-        min_score: int,
+        min_score: int | None = None,
         tagged_only: bool = True,
         tag: str | None = None,
         status: str | None = None,
@@ -297,13 +301,14 @@ class TaskManager:
         max_duration: float | None = None,
         min_width: int | None = None,
         min_height: int | None = None,
+        ocr_keyword: str | None = None,
     ) -> list[str]:
         task = self.get_task(task_id)
         values = list(self._latest_assets(task).values())
         result: list[str] = []
         for record in values:
             score, _, _ = evidence_score(record)
-            if score < min_score:
+            if min_score is not None and score < min_score:
                 continue
             if tagged_only and not record.get("tags"):
                 continue
@@ -319,6 +324,8 @@ class TaskManager:
             if min_width is not None and (record.get("max_width") or 0) < min_width:
                 continue
             if min_height is not None and (record.get("max_height") or 0) < min_height:
+                continue
+            if ocr_keyword and not _record_contains_ocr(record, ocr_keyword.casefold()):
                 continue
             result.append(record["asset_id"])
         return result
@@ -687,6 +694,14 @@ def _validate_snapshots(record: dict[str, Any]) -> None:
 def _is_system_entry(path: Path) -> bool:
     name = path.name.casefold()
     return name in IGNORED_SYSTEM_NAMES or name.startswith("._")
+
+
+def _record_contains_ocr(record: dict[str, Any], keyword: str) -> bool:
+    return any(
+        keyword in str(frame.get("ocr_text", "")).casefold()
+        for video in record.get("videos", [])
+        for frame in video.get("frames", [])
+    )
 
 
 def _directory_effect(directory: Path, records: list[dict[str, Any]]) -> dict[str, Any]:

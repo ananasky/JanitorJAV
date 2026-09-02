@@ -174,6 +174,8 @@ def test_matching_asset_ids_filters_score_across_pages(tmp_path: Path) -> None:
         )
 
     assert manager.matching_asset_ids(task.task_id, min_score=200, status="pending") == ["high"]
+    assert manager.matching_asset_ids(task.task_id, ocr_keyword="娱乐城", status="pending") == ["high"]
+    assert manager.assets(task.task_id, tagged_only=False, ocr_keyword="娱乐城")["total"] == 1
 
 
 def test_whole_directory_quarantine_includes_unassigned_and_restores(tmp_path: Path) -> None:

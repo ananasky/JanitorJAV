@@ -114,6 +114,7 @@ def create_app(manager: TaskManager) -> FastAPI:
         max_duration: float | None = None,
         min_width: int | None = None,
         min_height: int | None = None,
+        ocr_keyword: str | None = None,
     ) -> dict[str, Any]:
         try:
             return manager.assets(
@@ -127,6 +128,7 @@ def create_app(manager: TaskManager) -> FastAPI:
                 max_duration=max_duration,
                 min_width=min_width,
                 min_height=min_height,
+                ocr_keyword=ocr_keyword,
             )
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
@@ -142,7 +144,7 @@ def create_app(manager: TaskManager) -> FastAPI:
     @app.get("/api/tasks/{task_id}/matching-asset-ids")
     def matching_asset_ids(
         task_id: str,
-        min_score: Annotated[int, Query(ge=0)] = 200,
+        min_score: Annotated[int | None, Query(ge=0)] = None,
         tagged_only: bool = True,
         tag: str | None = None,
         status: str | None = None,
@@ -150,6 +152,7 @@ def create_app(manager: TaskManager) -> FastAPI:
         max_duration: float | None = None,
         min_width: int | None = None,
         min_height: int | None = None,
+        ocr_keyword: str | None = None,
     ) -> dict[str, Any]:
         try:
             ids = manager.matching_asset_ids(
@@ -162,6 +165,7 @@ def create_app(manager: TaskManager) -> FastAPI:
                 max_duration=max_duration,
                 min_width=min_width,
                 min_height=min_height,
+                ocr_keyword=ocr_keyword,
             )
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
