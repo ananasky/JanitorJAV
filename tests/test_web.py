@@ -67,6 +67,7 @@ def test_pages_render(tmp_path: Path) -> None:
     assert 'updateActionControls' in response.text
     assert '所选记录尚未标记为待隔离' in response.text
     assert '识别汇总：' in response.text
+    assert 's.related_text||[]' in response.text
     assert 'frame_count} 帧' not in response.text
 
 
