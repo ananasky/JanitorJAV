@@ -19,6 +19,9 @@ PROMOTIONAL_KEYWORDS = frozenset(
         "免费获取",
         "国产大片",
         "澳门",
+        "真人美女",
+        "荷官",
+        "发牌",
     }
 )
 

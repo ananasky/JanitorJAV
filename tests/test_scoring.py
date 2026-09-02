@@ -53,3 +53,12 @@ def test_promotional_keyword_forces_score_to_200_even_for_weak_address() -> None
 
     assert score == 200
     assert label == "high"
+
+
+def test_live_casino_keywords_force_score_to_200() -> None:
+    for keyword in ("真人美女", "荷官", "发牌"):
+        score, label, _ = evidence_score(
+            _record("example.com", frames=1, text=f"在线{keyword}")
+        )
+        assert score == 200
+        assert label == "high"
