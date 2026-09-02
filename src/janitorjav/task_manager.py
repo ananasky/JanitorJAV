@@ -285,6 +285,44 @@ class TaskManager:
             record["updated_at"] = _now()
             append_jsonl(task.workspace / "assets.jsonl", record)
 
+    def matching_asset_ids(
+        self,
+        task_id: str,
+        *,
+        min_score: int,
+        tagged_only: bool = True,
+        tag: str | None = None,
+        status: str | None = None,
+        min_duration: float | None = None,
+        max_duration: float | None = None,
+        min_width: int | None = None,
+        min_height: int | None = None,
+    ) -> list[str]:
+        task = self.get_task(task_id)
+        values = list(self._latest_assets(task).values())
+        result: list[str] = []
+        for record in values:
+            score, _, _ = evidence_score(record)
+            if score < min_score:
+                continue
+            if tagged_only and not record.get("tags"):
+                continue
+            if tag and tag not in record.get("tags", []):
+                continue
+            if status and record.get("review_status") != status:
+                continue
+            duration = record.get("total_duration_seconds")
+            if min_duration is not None and (duration or 0) < min_duration:
+                continue
+            if max_duration is not None and (duration or float("inf")) > max_duration:
+                continue
+            if min_width is not None and (record.get("max_width") or 0) < min_width:
+                continue
+            if min_height is not None and (record.get("max_height") or 0) < min_height:
+                continue
+            result.append(record["asset_id"])
+        return result
+
     def quarantine_ready_assets(self, task_id: str) -> list[dict[str, Any]]:
         task = self.get_task(task_id)
         ready_ids = [

@@ -69,6 +69,9 @@ def test_pages_render(tmp_path: Path) -> None:
     assert '识别汇总：' in response.text
     assert 's.related_text||[]' in response.text
     assert 'frame_count} 帧' not in response.text
+    assert 'id="score-threshold"' in response.text
+    assert '跨页全选分数≥' in response.text
+    assert 'matching-asset-ids' in response.text
 
 
 def test_rejects_non_empty_quarantine(tmp_path: Path) -> None:

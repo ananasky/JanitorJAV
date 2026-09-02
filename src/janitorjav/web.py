@@ -139,6 +139,34 @@ def create_app(manager: TaskManager) -> FastAPI:
             raise HTTPException(404, str(error)) from error
         return {"ok": True}
 
+    @app.get("/api/tasks/{task_id}/matching-asset-ids")
+    def matching_asset_ids(
+        task_id: str,
+        min_score: Annotated[int, Query(ge=0)] = 200,
+        tagged_only: bool = True,
+        tag: str | None = None,
+        status: str | None = None,
+        min_duration: float | None = None,
+        max_duration: float | None = None,
+        min_width: int | None = None,
+        min_height: int | None = None,
+    ) -> dict[str, Any]:
+        try:
+            ids = manager.matching_asset_ids(
+                task_id,
+                min_score=min_score,
+                tagged_only=tagged_only,
+                tag=tag,
+                status=status,
+                min_duration=min_duration,
+                max_duration=max_duration,
+                min_width=min_width,
+                min_height=min_height,
+            )
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        return {"asset_ids": ids, "total": len(ids)}
+
     @app.post("/api/tasks/{task_id}/quarantine")
     def quarantine_assets(task_id: str, payload: AssetActionRequest) -> dict[str, Any]:
         try:

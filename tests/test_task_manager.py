@@ -154,6 +154,28 @@ def test_asset_listing_returns_review_status_counts(tmp_path: Path) -> None:
     assert result["status_counts"]["ready_to_quarantine"] == 1
 
 
+def test_matching_asset_ids_filters_score_across_pages(tmp_path: Path) -> None:
+    scan = tmp_path / "JAV"
+    scan.mkdir()
+    manager = TaskManager(EmptyOCR(), workspace_root=tmp_path / "tasks")
+    task = manager.create_task(scan)
+    for asset_id, text in (("high", "澳门娱乐城\nexample.com"), ("low", "example.com")):
+        append_jsonl(
+            task.workspace / "assets.jsonl",
+            {
+                "asset_id": asset_id,
+                "directory": str(scan),
+                "group_key": asset_id,
+                "tags": ["url_detected"],
+                "review_status": "pending",
+                "videos": [{"frames": [{"ocr_text": text, "matches": [{"type": "domain_like", "normalized_text": "example.com", "confidence": 0.95}]}]}],
+            },
+            durable=False,
+        )
+
+    assert manager.matching_asset_ids(task.task_id, min_score=200, status="pending") == ["high"]
+
+
 def test_whole_directory_quarantine_includes_unassigned_and_restores(tmp_path: Path) -> None:
     scan = tmp_path / "JAV"
     directory = scan / "2026" / "ABC-123"
