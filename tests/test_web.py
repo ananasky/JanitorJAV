@@ -50,6 +50,7 @@ def test_pages_render(tmp_path: Path) -> None:
     assert task.task_id in response.text
     assert 'id="task-controls"' in response.text
     assert 'id="selection-toggle"' in response.text
+    assert 'a.flagged' in response.text
 
 
 def test_rejects_non_empty_quarantine(tmp_path: Path) -> None:
