@@ -283,6 +283,8 @@ class TaskManager:
                 quarantine_path.replace(original_path)
                 moved.append((quarantine_path, original_path))
                 operation["files"].append({"source": str(quarantine_path), "target": str(original_path), "status": "restored"})
+            for quarantine_path, _ in pairs:
+                _prune_empty_parents(quarantine_path.parent, stop_at=task.quarantine_root)
             operation["status"] = "completed"
             status = ReviewStatus.RESTORED
         except Exception as error:
@@ -392,3 +394,14 @@ class TaskManager:
                 self._tasks[task.task_id] = task
             except (OSError, KeyError, ValueError, json.JSONDecodeError):
                 continue
+
+
+def _prune_empty_parents(path: Path, *, stop_at: Path) -> None:
+    current = path
+    stop_at = stop_at.resolve()
+    while current.resolve() != stop_at:
+        try:
+            current.rmdir()
+        except OSError:
+            break
+        current = current.parent
