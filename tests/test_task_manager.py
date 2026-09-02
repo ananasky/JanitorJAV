@@ -126,6 +126,34 @@ def test_source_change_blocks_quarantine(tmp_path: Path) -> None:
     assert "source_changed_since_scan" in latest["tags"]
 
 
+def test_asset_listing_returns_review_status_counts(tmp_path: Path) -> None:
+    scan = tmp_path / "JAV"
+    scan.mkdir()
+    manager = TaskManager(EmptyOCR(), workspace_root=tmp_path / "tasks")
+    task = manager.create_task(scan)
+    for index, status in enumerate(("pending", "keep", "ready_to_quarantine")):
+        append_jsonl(
+            task.workspace / "assets.jsonl",
+            {
+                "asset_id": str(index),
+                "directory": str(scan),
+                "group_key": str(index),
+                "videos": [],
+                "files": [],
+                "tags": ["url_detected"],
+                "review_status": status,
+            },
+            durable=False,
+        )
+
+    result = manager.assets(task.task_id, status="pending")
+
+    assert result["total"] == 1
+    assert result["status_counts"]["pending"] == 1
+    assert result["status_counts"]["keep"] == 1
+    assert result["status_counts"]["ready_to_quarantine"] == 1
+
+
 def test_whole_directory_quarantine_includes_unassigned_and_restores(tmp_path: Path) -> None:
     scan = tmp_path / "JAV"
     directory = scan / "2026" / "ABC-123"

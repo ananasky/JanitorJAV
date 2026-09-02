@@ -56,6 +56,9 @@ def test_pages_render(tmp_path: Path) -> None:
     assert '>跳转</button>' in response.text
     assert '执行全部已标记隔离' in response.text
     assert 'reviewOne' in response.text
+    assert 'data-list-status="pending"' in response.text
+    assert 'data-list-status="keep"' in response.text
+    assert 'data-list-status="ready_to_quarantine"' in response.text
 
 
 def test_rejects_non_empty_quarantine(tmp_path: Path) -> None:

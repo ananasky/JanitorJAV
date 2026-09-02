@@ -12,6 +12,7 @@
     .tags span { display:inline-block; background:#374151; border-radius:12px; padding:3px 8px; margin:2px; font-size:12px; }
     .risk { display:inline-block; border-radius:12px; padding:3px 8px; font-size:12px; font-weight:700; } .risk.high { background:#991b1b; } .risk.medium { background:#9a3412; } .risk.low { background:#374151; }
     .evidence-summary { margin:8px 0; padding:8px 10px; background:#111827; border-radius:7px; } .evidence-summary b { color:#fca5a5; } .row-actions { display:flex; flex-direction:column; gap:5px; } .keep { background:#047857; }
+    .tabs { display:flex; gap:6px; margin:12px 0; } .tabs button { background:#374151; } .tabs button.active { background:#2563eb; }
     .muted { color:#9ca3af; } .frames a { margin-right:8px; } .frames a.flagged { color:#f87171; font-weight:700; } dialog { max-width:92vw; max-height:92vh; background:#111827; color:#fff; border:1px solid #4b5563; }
     dialog img { max-width:85vw; max-height:70vh; display:block; margin:auto; } pre { white-space:pre-wrap; }
   </style>
@@ -20,11 +21,16 @@
   <p><a href="/">← 返回任务列表</a></p>
   <h1>任务 {{ task.task_id }}</h1>
   <div class="summary" id="summary"></div>
+  <div class="tabs">
+    <button data-list-status="pending" onclick="setList('pending')">待处理 <span id="count-pending"></span></button>
+    <button data-list-status="keep" onclick="setList('keep')">保留 <span id="count-keep"></span></button>
+    <button data-list-status="ready_to_quarantine" onclick="setList('ready_to_quarantine')">待隔离 <span id="count-ready_to_quarantine"></span></button>
+  </div>
   <div class="toolbar">
     <label><input type="checkbox" id="tagged-only" checked onchange="loadAssets(1)">仅显示带标签</label>
     <select id="page-size" onchange="loadAssets(1)"><option>25</option><option selected>50</option><option>100</option></select>
     <input id="tag-filter" placeholder="标签筛选" onchange="loadAssets(1)">
-    <select id="status-filter" onchange="loadAssets(1)"><option value="">全部状态</option><option value="pending">待审核</option><option value="keep">确认保留</option><option value="ready_to_quarantine">准备隔离</option><option value="quarantined">已隔离</option><option value="quarantine_failed">隔离失败</option></select>
+    <select id="status-filter" onchange="statusFilterChanged()"><option value="">全部状态</option><option value="pending" selected>待处理</option><option value="keep">保留</option><option value="ready_to_quarantine">待隔离</option><option value="quarantined">已隔离</option><option value="quarantine_failed">隔离失败</option><option value="restored">已恢复</option></select>
     <input id="min-duration" type="number" placeholder="最短秒数" onchange="loadAssets(1)"><input id="max-duration" type="number" placeholder="最长秒数" onchange="loadAssets(1)">
     <input id="min-width" type="number" placeholder="最小宽度" onchange="loadAssets(1)"><input id="min-height" type="number" placeholder="最小高度" onchange="loadAssets(1)">
     <span id="task-controls"></span>
@@ -47,11 +53,15 @@ async function loadAssets(page=currentPage){
   for(const [key,id] of Object.entries(fields)){const value=document.getElementById(id).value;if(value!=='')params.set(key,value)}
   const data=await api(`/api/tasks/${taskId}/assets?${params}`);
   currentItems=data.items;
+  updateListTabs(data.status_counts||{});
   document.getElementById('assets').innerHTML=data.items.map(renderAsset).join('')||'<p>暂无结果</p>';
   updateSelectionToggle();
   const pages=Math.max(1,Math.ceil(data.total/data.page_size));
   document.getElementById('pager').innerHTML=`第 ${page}/${pages} 页，共 ${data.total} 条 <button onclick="loadAssets(${Math.max(1,page-1)})">上一页</button><button onclick="loadAssets(${Math.min(pages,page+1)})">下一页</button><input id="page-jump" type="number" min="1" max="${pages}" value="${page}" style="width:72px" onkeydown="if(event.key==='Enter')goToPage(${pages})"><button onclick="goToPage(${pages})">跳转</button>`;
 }
+function setList(status){document.getElementById('status-filter').value=status; loadAssets(1);}
+function statusFilterChanged(){loadAssets(1);}
+function updateListTabs(counts){const status=document.getElementById('status-filter').value; document.querySelectorAll('[data-list-status]').forEach(button=>button.classList.toggle('active',button.dataset.listStatus===status)); for(const key of ['pending','keep','ready_to_quarantine'])document.getElementById(`count-${key}`).textContent=`(${counts[key]||0})`;}
 function goToPage(pages){const input=document.getElementById('page-jump'); const page=Math.max(1,Math.min(pages,Number.parseInt(input.value,10)||1)); loadAssets(page);}
 function renderAsset(a){const videos=a.videos.map(v=>`<div>${esc(v.path)} · ${formatDuration(v.duration_seconds)} · ${v.width||'?'}×${v.height||'?'}</div>`).join(''); const frames=a.videos.flatMap(v=>v.frames.map(f=>`<a class="${f.matches?.length?'flagged':''}" title="${f.matches?.length?'检测到网址或 IP':'未检测到匹配'}" href="#" onclick='showFrame(event,${JSON.stringify(f)})'>${f.timestamp_seconds.toFixed(2)}s</a>`)).join(''); const summaries=(a.evidence_summary||[]).map(s=>`<div class="evidence-summary"><b>${esc(s.text)}</b> × ${s.frame_count} 帧<br><span class="muted">位置：${s.positions.map(esc).join('、')||'未知'}</span>${s.related_text.length?`<br>相关文字：${s.related_text.map(esc).join(' / ')}`:''}</div>`).join(''); const effect=a.directory_effect||{}; const remaining=(effect.remaining_entries||[]).map(esc).join('<br>'); const directoryActions=effect.all_assets_ready?`<div><b>${effect.effectively_empty?'隔离后目录仅剩系统杂项':'目录仍有未归属内容'}</b>${remaining?`<div class="muted">${remaining}</div>`:''}<button class="danger" onclick='directoryAction("quarantine-directory",${JSON.stringify(a.directory)})'>整体隔离目录</button></div>`:''; const restoreAction=a.restore_mode==='directory'?`<button onclick='directoryAction("restore-directory",${JSON.stringify(a.directory)})'>恢复整个目录</button>`:a.restore_mode==='asset'?`<button onclick='restoreAsset(${JSON.stringify(a.asset_id)})'>恢复资产组</button>`:''; const decisions=['pending','keep','ready_to_quarantine'].includes(a.review_status)?`<button class="keep" ${a.review_status==='keep'?'disabled':''} onclick='reviewOne(${JSON.stringify(a.asset_id)},"keep")'>保留</button><button class="danger" ${a.review_status==='ready_to_quarantine'?'disabled':''} onclick='reviewOne(${JSON.stringify(a.asset_id)},"ready_to_quarantine")'>标记隔离</button>`:''; return `<article class="asset grid"><input class="pick" type="checkbox" value="${a.asset_id}" onchange="updateSelectionToggle()"><div><h3>${esc(a.group_key)} <small>${esc(a.review_status)}</small> <span class="risk ${a.risk_label}">风险 ${a.risk_score}</span></h3>${videos}<div class="tags">${a.tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div><div class="frames">${frames}</div>${summaries}${directoryActions}${restoreAction}</div><div class="row-actions">${decisions}<button onclick='openDir(${JSON.stringify(a.directory)})'>打开目录</button></div></article>`;}
 function formatDuration(v){if(v==null)return'?'; const s=Math.round(v); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}

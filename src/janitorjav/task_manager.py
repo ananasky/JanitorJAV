@@ -230,8 +230,6 @@ class TaskManager:
             values = [record for record in values if record.get("tags")]
         if tag:
             values = [record for record in values if tag in record.get("tags", [])]
-        if status:
-            values = [record for record in values if record.get("review_status") == status]
         if min_duration is not None:
             values = [record for record in values if (record.get("total_duration_seconds") or 0) >= min_duration]
         if max_duration is not None:
@@ -240,6 +238,14 @@ class TaskManager:
             values = [record for record in values if (record.get("max_width") or 0) >= min_width]
         if min_height is not None:
             values = [record for record in values if (record.get("max_height") or 0) >= min_height]
+        status_counts = {
+            review_status.value: sum(
+                record.get("review_status") == review_status.value for record in values
+            )
+            for review_status in ReviewStatus
+        }
+        if status:
+            values = [record for record in values if record.get("review_status") == status]
         values.sort(
             key=lambda record: (
                 -record.get("risk_score", 0),
@@ -259,7 +265,13 @@ class TaskManager:
             record["directory_effect"] = _directory_effect(
                 Path(directory_value), by_directory.get(record.get("directory", ""), [])
             )
-        return {"items": page_values, "total": total, "page": page, "page_size": page_size}
+        return {
+            "items": page_values,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "status_counts": status_counts,
+        }
 
     def set_review_status(self, task_id: str, asset_ids: list[str], status: ReviewStatus) -> None:
         task = self.get_task(task_id)
