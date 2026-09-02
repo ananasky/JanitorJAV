@@ -81,6 +81,8 @@ class TaskState:
             "errors": self.errors,
             "current_file": self.current_file,
             "error": self.error,
+            "stop_requested": self.stop_requested,
+            "pause_requested": self.pause_requested,
         }
 
 
@@ -124,6 +126,11 @@ class TaskManager:
                 task.pause_requested = False
                 task.status = "running"
                 self._save_task(task)
+                thread = self._threads.get(task_id)
+                if thread is None or not thread.is_alive():
+                    thread = threading.Thread(target=self._scan, args=(task,), daemon=True)
+                    self._threads[task_id] = thread
+                    thread.start()
                 return task
             if task.status == "running":
                 return task
@@ -150,6 +157,9 @@ class TaskManager:
     def cancel_task(self, task_id: str) -> TaskState:
         task = self.get_task(task_id)
         task.stop_requested = True
+        thread = self._threads.get(task_id)
+        if task.status == "paused" and (thread is None or not thread.is_alive()):
+            task.status = "cancelled"
         self._save_task(task)
         return task
 
@@ -533,6 +543,8 @@ class TaskManager:
                     errors=payload.get("errors", 0),
                     current_file=payload.get("current_file"),
                     error=payload.get("error"),
+                    stop_requested=payload.get("stop_requested", False),
+                    pause_requested=payload.get("pause_requested", False),
                 )
                 if task.status == "running":
                     task.status = "cancelled"

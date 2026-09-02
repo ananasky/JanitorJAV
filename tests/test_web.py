@@ -48,6 +48,8 @@ def test_pages_render(tmp_path: Path) -> None:
     response = client.get(f"/tasks/{task.task_id}")
     assert response.status_code == 200
     assert task.task_id in response.text
+    assert 'id="task-controls"' in response.text
+    assert 'id="selection-toggle"' in response.text
 
 
 def test_rejects_non_empty_quarantine(tmp_path: Path) -> None:
