@@ -61,6 +61,8 @@ def test_pages_render(tmp_path: Path) -> None:
     assert 'data-list-status="ready_to_quarantine"' in response.text
     assert '不会自动补充记录' in response.text
     assert 'removeReviewed' in response.text
+    assert 'class="toolbar review-toolbar"' in response.text
+    assert '.review-toolbar { position:sticky' in response.text
 
 
 def test_rejects_non_empty_quarantine(tmp_path: Path) -> None:

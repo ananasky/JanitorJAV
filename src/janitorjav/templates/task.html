@@ -13,6 +13,7 @@
     .risk { display:inline-block; border-radius:12px; padding:3px 8px; font-size:12px; font-weight:700; } .risk.high { background:#991b1b; } .risk.medium { background:#9a3412; } .risk.low { background:#374151; }
     .evidence-summary { margin:8px 0; padding:8px 10px; background:#111827; border-radius:7px; } .evidence-summary b { color:#fca5a5; } .row-actions { display:flex; flex-direction:column; gap:5px; } .keep { background:#047857; }
     .tabs { display:flex; gap:6px; margin:12px 0; } .tabs button { background:#374151; } .tabs button.active { background:#2563eb; }
+    .review-toolbar { position:sticky; top:0; z-index:100; box-shadow:0 8px 18px rgba(0,0,0,.35); }
     .muted { color:#9ca3af; } .frames a { margin-right:8px; } .frames a.flagged { color:#f87171; font-weight:700; } dialog { max-width:92vw; max-height:92vh; background:#111827; color:#fff; border:1px solid #4b5563; }
     dialog img { max-width:85vw; max-height:70vh; display:block; margin:auto; } pre { white-space:pre-wrap; }
   </style>
@@ -26,7 +27,7 @@
     <button data-list-status="keep" onclick="setList('keep')">保留 <span id="count-keep"></span></button>
     <button data-list-status="ready_to_quarantine" onclick="setList('ready_to_quarantine')">待隔离 <span id="count-ready_to_quarantine"></span></button>
   </div>
-  <div class="toolbar">
+  <div class="toolbar review-toolbar">
     <label><input type="checkbox" id="tagged-only" checked onchange="loadAssets(1)">仅显示带标签</label>
     <select id="page-size" onchange="loadAssets(1)"><option>25</option><option selected>50</option><option>100</option></select>
     <input id="tag-filter" placeholder="标签筛选" onchange="loadAssets(1)">
