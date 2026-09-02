@@ -69,21 +69,22 @@ def evidence_score(record: dict[str, Any]) -> tuple[int, str, list[dict[str, Any
         score = (30 if strong_format else 5) + min(frame_count, 6) * 7
         score += 15 if item["confidence"] >= 0.75 else round(item["confidence"] * 10)
         if has_promotion:
-            score += 20
-        if not strong_format:
-            score = min(score, 55 if has_promotion else 35)
+            score = 200
+        elif not strong_format:
+            score = min(score, 35)
         summaries.append(
             {
                 **item,
                 "frame_count": frame_count,
                 "related_text": related[:3],
                 "strong_format": strong_format,
-                "score": min(100, score),
+                "score": min(100, score) if not has_promotion else 200,
             }
         )
 
     summaries.sort(key=lambda item: (-item["score"], -item["frame_count"], item["text"].casefold()))
-    score = min(100, max((item["score"] for item in summaries), default=0) + min(6, max(0, len(summaries) - 1) * 2))
+    highest = max((item["score"] for item in summaries), default=0)
+    score = 200 if highest == 200 else min(100, highest + min(6, max(0, len(summaries) - 1) * 2))
     label = "high" if score >= 70 else "medium" if score >= 45 else "low"
     return score, label, summaries
 
