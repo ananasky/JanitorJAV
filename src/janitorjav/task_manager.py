@@ -178,6 +178,21 @@ class TaskManager:
         task = self.get_task(task_id)
         records = list(read_jsonl(task.workspace / "assets.jsonl"))
         latest = {record["asset_id"]: record for record in records}
+        restore_modes: dict[str, str] = {}
+        for operation in read_jsonl(task.workspace / "operations.jsonl"):
+            if operation.get("status") != "completed":
+                continue
+            operation_type = operation.get("operation_type", "quarantine")
+            if operation_type == "quarantine" and operation.get("asset_id"):
+                restore_modes[operation["asset_id"]] = "asset"
+            elif operation_type == "restore" and operation.get("asset_id"):
+                restore_modes.pop(operation["asset_id"], None)
+            elif operation_type == "quarantine_directory":
+                for asset_id in operation.get("asset_ids", []):
+                    restore_modes[asset_id] = "directory"
+            elif operation_type == "restore_directory":
+                for asset_id in operation.get("asset_ids", []):
+                    restore_modes.pop(asset_id, None)
         values = list(latest.values())
         if tagged_only:
             values = [record for record in values if record.get("tags")]
@@ -199,6 +214,7 @@ class TaskManager:
             by_directory.setdefault(record.get("directory", ""), []).append(record)
         for record in values:
             directory_value = record.get("directory", str(task.scan_root))
+            record["restore_mode"] = restore_modes.get(record["asset_id"])
             record["directory_effect"] = _directory_effect(
                 Path(directory_value), by_directory.get(record.get("directory", ""), [])
             )

@@ -37,12 +37,14 @@ def test_quarantine_and_restore_round_trip(tmp_path: Path) -> None:
     append_jsonl(task.workspace / "assets.jsonl", record, durable=False)
 
     operations = manager.quarantine_assets(task.task_id, ["asset-1"])
+    assert manager.assets(task.task_id, tagged_only=False)["items"][0]["restore_mode"] == "asset"
     target = task.quarantine_root / "2026" / "ABC-123" / "ABC-123.mp4"
     assert operations[0]["status"] == "completed"
     assert not source.exists()
     assert target.read_bytes() == b"video"
 
     operations = manager.restore_assets(task.task_id, ["asset-1"])
+    assert manager.assets(task.task_id, tagged_only=False)["items"][0]["restore_mode"] is None
     assert operations[0]["status"] == "completed"
     assert source.read_bytes() == b"video"
     assert not target.exists()
@@ -108,6 +110,7 @@ def test_whole_directory_quarantine_includes_unassigned_and_restores(tmp_path: P
     assert effect["system_entries"] == [str(junk)]
 
     operation = manager.quarantine_directory(task.task_id, directory)
+    assert manager.assets(task.task_id, tagged_only=False)["items"][0]["restore_mode"] == "directory"
     quarantined = task.quarantine_root / "2026" / "ABC-123"
     assert operation["status"] == "completed"
     assert not directory.exists()
@@ -115,6 +118,7 @@ def test_whole_directory_quarantine_includes_unassigned_and_restores(tmp_path: P
     assert (quarantined / "Thumbs.db").exists()
 
     operation = manager.restore_directory(task.task_id, directory)
+    assert manager.assets(task.task_id, tagged_only=False)["items"][0]["restore_mode"] is None
     assert operation["status"] == "completed"
     assert extra.exists()
     assert junk.exists()
