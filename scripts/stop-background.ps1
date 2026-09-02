@@ -1,18 +1,11 @@
 $ErrorActionPreference = "Stop"
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
-$PidFile = Join-Path $ProjectRoot ".runtime\server.pid"
+$TaskName = "JanitorJAV-LocalServer"
 
-if (-not (Test-Path $PidFile)) {
-    Write-Host "JanitorJAV is not running (PID file not found)."
+if (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
+    Write-Host "JanitorJAV is not running (scheduled task not found)."
     exit 0
 }
 
-$ServerPid = Get-Content $PidFile
-$Process = Get-Process -Id $ServerPid -ErrorAction SilentlyContinue
-if ($Process) {
-    Stop-Process -Id $ServerPid
-    $Process.WaitForExit(10000)
-}
-Remove-Item $PidFile -Force
+Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 Write-Host "JanitorJAV stopped."
-
