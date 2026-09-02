@@ -34,8 +34,8 @@
     <input id="tag-filter" placeholder="标签筛选" onchange="loadAssets(1)">
     <input id="ocr-keyword" placeholder="OCR关键词" onchange="loadAssets(1)"><button onclick="selectByKeyword()">跨页全选关键词</button>
     <select id="status-filter" onchange="statusFilterChanged()"><option value="">全部状态</option><option value="pending" selected>待处理</option><option value="keep">保留</option><option value="ready_to_quarantine">待隔离</option><option value="quarantined">已隔离</option><option value="quarantine_failed">隔离失败</option><option value="restored">已恢复</option></select>
-    <input id="min-duration" type="number" placeholder="最短秒数" onchange="loadAssets(1)"><input id="max-duration" type="number" placeholder="最长秒数" onchange="loadAssets(1)">
-    <input id="min-width" type="number" placeholder="最小宽度" onchange="loadAssets(1)"><input id="min-height" type="number" placeholder="最小高度" onchange="loadAssets(1)">
+    <input id="max-duration" type="number" placeholder="时长≤秒" onchange="loadAssets(1)"><input id="min-duration" type="number" placeholder="时长≥秒" onchange="loadAssets(1)">
+    <input id="max-width" type="number" placeholder="宽度≤像素" onchange="loadAssets(1)"><input id="max-height" type="number" placeholder="高度≤像素" onchange="loadAssets(1)">
     <span id="task-controls"></span>
     <input id="score-threshold" type="number" min="0" value="200" style="width:76px" title="最低风险分"><button onclick="selectByScore()">跨页全选分数≥</button><span id="selected-count" class="muted">已选 0</span>
     <button id="selection-toggle" onclick="togglePageSelection()">整页全选</button>
@@ -53,7 +53,7 @@ function renderTaskControls(t){let html=''; if(t.status==='running'&&!t.pause_re
 async function loadAssets(page=currentPage){
   currentPage=page;
   const params=new URLSearchParams({page, page_size:document.getElementById('page-size').value, tagged_only:document.getElementById('tagged-only').checked});
-  const fields={tag:'tag-filter',status:'status-filter',ocr_keyword:'ocr-keyword',min_duration:'min-duration',max_duration:'max-duration',min_width:'min-width',min_height:'min-height'};
+  const fields={tag:'tag-filter',status:'status-filter',ocr_keyword:'ocr-keyword',min_duration:'min-duration',max_duration:'max-duration',max_width:'max-width',max_height:'max-height'};
   for(const [key,id] of Object.entries(fields)){const value=document.getElementById(id).value;if(value!=='')params.set(key,value)}
   const data=await api(`/api/tasks/${taskId}/assets?${params}`);
   currentItems=data.items;
@@ -78,7 +78,7 @@ function updateSelectionToggle(){const boxes=[...document.querySelectorAll('.pic
 function togglePageSelection(){const boxes=[...document.querySelectorAll('.pick')]; const allSelected=boxes.length>0&&boxes.every(x=>x.checked); boxes.forEach(x=>{x.checked=!allSelected;if(x.checked)selectedIds.add(x.value);else selectedIds.delete(x.value)}); updateSelectionToggle();}
 async function selectByScore(){const threshold=Number.parseInt(document.getElementById('score-threshold').value,10);if(Number.isNaN(threshold))return alert('请输入最低分数');const params=selectionParams();params.set('min_score',threshold);const data=await api(`/api/tasks/${taskId}/matching-asset-ids?${params}`);applyCrossPageSelection(data.asset_ids);alert(`已跨页选择 ${data.total} 条分数不低于 ${threshold} 的记录`);}
 async function selectByKeyword(){const keyword=document.getElementById('ocr-keyword').value.trim();if(!keyword)return alert('请先输入 OCR 关键词');const params=selectionParams();params.set('ocr_keyword',keyword);const data=await api(`/api/tasks/${taskId}/matching-asset-ids?${params}`);applyCrossPageSelection(data.asset_ids);alert(`已跨页选择 ${data.total} 条包含“${keyword}”的记录`);}
-function selectionParams(){const params=new URLSearchParams({tagged_only:document.getElementById('tagged-only').checked});const fields={tag:'tag-filter',status:'status-filter',ocr_keyword:'ocr-keyword',min_duration:'min-duration',max_duration:'max-duration',min_width:'min-width',min_height:'min-height'};for(const [key,id] of Object.entries(fields)){const value=document.getElementById(id).value;if(value!=='')params.set(key,value)}return params;}
+function selectionParams(){const params=new URLSearchParams({tagged_only:document.getElementById('tagged-only').checked});const fields={tag:'tag-filter',status:'status-filter',ocr_keyword:'ocr-keyword',min_duration:'min-duration',max_duration:'max-duration',max_width:'max-width',max_height:'max-height'};for(const [key,id] of Object.entries(fields)){const value=document.getElementById(id).value;if(value!=='')params.set(key,value)}return params;}
 function applyCrossPageSelection(ids){selectedIds.clear();for(const id of ids)selectedIds.add(id);renderCurrentBatch();}
 async function review(status){const ids=selected(); if(!ids.length)return alert('请先选择项目'); await api(`/api/tasks/${taskId}/review`,{method:'POST',body:JSON.stringify({asset_ids:ids,status})}); removeReviewed(ids,status);}
 async function reviewOne(assetId,status){await api(`/api/tasks/${taskId}/review`,{method:'POST',body:JSON.stringify({asset_ids:[assetId],status})}); removeReviewed([assetId],status);}

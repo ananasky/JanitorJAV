@@ -199,8 +199,8 @@ class TaskManager:
         status: str | None = None,
         min_duration: float | None = None,
         max_duration: float | None = None,
-        min_width: int | None = None,
-        min_height: int | None = None,
+        max_width: int | None = None,
+        max_height: int | None = None,
         ocr_keyword: str | None = None,
     ) -> dict[str, Any]:
         task = self.get_task(task_id)
@@ -235,10 +235,10 @@ class TaskManager:
             values = [record for record in values if (record.get("total_duration_seconds") or 0) >= min_duration]
         if max_duration is not None:
             values = [record for record in values if (record.get("total_duration_seconds") or float("inf")) <= max_duration]
-        if min_width is not None:
-            values = [record for record in values if (record.get("max_width") or 0) >= min_width]
-        if min_height is not None:
-            values = [record for record in values if (record.get("max_height") or 0) >= min_height]
+        if max_width is not None:
+            values = [record for record in values if (record.get("max_width") or float("inf")) <= max_width]
+        if max_height is not None:
+            values = [record for record in values if (record.get("max_height") or float("inf")) <= max_height]
         if ocr_keyword:
             keyword = ocr_keyword.casefold()
             values = [record for record in values if _record_contains_ocr(record, keyword)]
@@ -299,8 +299,8 @@ class TaskManager:
         status: str | None = None,
         min_duration: float | None = None,
         max_duration: float | None = None,
-        min_width: int | None = None,
-        min_height: int | None = None,
+        max_width: int | None = None,
+        max_height: int | None = None,
         ocr_keyword: str | None = None,
     ) -> list[str]:
         task = self.get_task(task_id)
@@ -321,9 +321,9 @@ class TaskManager:
                 continue
             if max_duration is not None and (duration or float("inf")) > max_duration:
                 continue
-            if min_width is not None and (record.get("max_width") or 0) < min_width:
+            if max_width is not None and (record.get("max_width") or float("inf")) > max_width:
                 continue
-            if min_height is not None and (record.get("max_height") or 0) < min_height:
+            if max_height is not None and (record.get("max_height") or float("inf")) > max_height:
                 continue
             if ocr_keyword and not _record_contains_ocr(record, ocr_keyword.casefold()):
                 continue

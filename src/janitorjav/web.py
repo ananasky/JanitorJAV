@@ -112,8 +112,8 @@ def create_app(manager: TaskManager) -> FastAPI:
         status: str | None = None,
         min_duration: float | None = None,
         max_duration: float | None = None,
-        min_width: int | None = None,
-        min_height: int | None = None,
+        max_width: int | None = None,
+        max_height: int | None = None,
         ocr_keyword: str | None = None,
     ) -> dict[str, Any]:
         try:
@@ -126,8 +126,8 @@ def create_app(manager: TaskManager) -> FastAPI:
                 status=status,
                 min_duration=min_duration,
                 max_duration=max_duration,
-                min_width=min_width,
-                min_height=min_height,
+                max_width=max_width,
+                max_height=max_height,
                 ocr_keyword=ocr_keyword,
             )
         except KeyError as error:
@@ -150,8 +150,8 @@ def create_app(manager: TaskManager) -> FastAPI:
         status: str | None = None,
         min_duration: float | None = None,
         max_duration: float | None = None,
-        min_width: int | None = None,
-        min_height: int | None = None,
+        max_width: int | None = None,
+        max_height: int | None = None,
         ocr_keyword: str | None = None,
     ) -> dict[str, Any]:
         try:
@@ -163,8 +163,8 @@ def create_app(manager: TaskManager) -> FastAPI:
                 status=status,
                 min_duration=min_duration,
                 max_duration=max_duration,
-                min_width=min_width,
-                min_height=min_height,
+                max_width=max_width,
+                max_height=max_height,
                 ocr_keyword=ocr_keyword,
             )
         except KeyError as error:

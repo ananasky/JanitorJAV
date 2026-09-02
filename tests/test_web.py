@@ -74,6 +74,9 @@ def test_pages_render(tmp_path: Path) -> None:
     assert 'matching-asset-ids' in response.text
     assert 'id="ocr-keyword"' in response.text
     assert '跨页全选关键词' in response.text
+    assert 'placeholder="时长≤秒"' in response.text
+    assert 'placeholder="宽度≤像素"' in response.text
+    assert 'placeholder="高度≤像素"' in response.text
 
 
 def test_rejects_non_empty_quarantine(tmp_path: Path) -> None:
