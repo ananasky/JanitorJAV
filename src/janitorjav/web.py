@@ -115,6 +115,7 @@ def create_app(manager: TaskManager) -> FastAPI:
         max_width: int | None = None,
         max_height: int | None = None,
         ocr_keyword: str | None = None,
+        path_query: str | None = None,
     ) -> dict[str, Any]:
         try:
             return manager.assets(
@@ -129,6 +130,7 @@ def create_app(manager: TaskManager) -> FastAPI:
                 max_width=max_width,
                 max_height=max_height,
                 ocr_keyword=ocr_keyword,
+                path_query=path_query,
             )
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
@@ -153,6 +155,7 @@ def create_app(manager: TaskManager) -> FastAPI:
         max_width: int | None = None,
         max_height: int | None = None,
         ocr_keyword: str | None = None,
+        path_query: str | None = None,
     ) -> dict[str, Any]:
         try:
             ids = manager.matching_asset_ids(
@@ -166,6 +169,7 @@ def create_app(manager: TaskManager) -> FastAPI:
                 max_width=max_width,
                 max_height=max_height,
                 ocr_keyword=ocr_keyword,
+                path_query=path_query,
             )
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
@@ -182,6 +186,33 @@ def create_app(manager: TaskManager) -> FastAPI:
     def quarantine_ready_assets(task_id: str) -> dict[str, Any]:
         try:
             return {"operations": manager.quarantine_ready_assets(task_id)}
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.post("/api/tasks/{task_id}/quarantine-job")
+    def start_quarantine_job(
+        task_id: str, payload: AssetActionRequest
+    ) -> dict[str, Any]:
+        try:
+            return manager.start_quarantine_job(task_id, payload.asset_ids)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.post("/api/tasks/{task_id}/quarantine-ready-job")
+    def start_ready_quarantine_job(task_id: str) -> dict[str, Any]:
+        try:
+            return manager.start_quarantine_job(task_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.get("/api/tasks/{task_id}/quarantine-jobs/{job_id}")
+    def quarantine_job(task_id: str, job_id: str) -> dict[str, Any]:
+        try:
+            return manager.get_quarantine_job(task_id, job_id)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 

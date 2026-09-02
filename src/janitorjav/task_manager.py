@@ -106,6 +106,8 @@ class TaskManager:
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self._tasks: dict[str, TaskState] = {}
         self._threads: dict[str, threading.Thread] = {}
+        self._quarantine_jobs: dict[str, dict[str, Any]] = {}
+        self._quarantine_threads: dict[str, threading.Thread] = {}
         self._lock = threading.RLock()
         self._load_tasks()
 
@@ -202,6 +204,7 @@ class TaskManager:
         max_width: int | None = None,
         max_height: int | None = None,
         ocr_keyword: str | None = None,
+        path_query: str | None = None,
     ) -> dict[str, Any]:
         task = self.get_task(task_id)
         records = list(read_jsonl(task.workspace / "assets.jsonl"))
@@ -242,6 +245,9 @@ class TaskManager:
         if ocr_keyword:
             keyword = ocr_keyword.casefold()
             values = [record for record in values if _record_contains_ocr(record, keyword)]
+        if path_query:
+            query = path_query.casefold()
+            values = [record for record in values if _record_contains_path(record, query)]
         status_counts = {
             review_status.value: sum(
                 record.get("review_status") == review_status.value for record in values
@@ -302,6 +308,7 @@ class TaskManager:
         max_width: int | None = None,
         max_height: int | None = None,
         ocr_keyword: str | None = None,
+        path_query: str | None = None,
     ) -> list[str]:
         task = self.get_task(task_id)
         values = list(self._latest_assets(task).values())
@@ -327,6 +334,8 @@ class TaskManager:
                 continue
             if ocr_keyword and not _record_contains_ocr(record, ocr_keyword.casefold()):
                 continue
+            if path_query and not _record_contains_path(record, path_query.casefold()):
+                continue
             result.append(record["asset_id"])
         return result
 
@@ -338,6 +347,100 @@ class TaskManager:
             if record.get("review_status") == ReviewStatus.READY_TO_QUARANTINE.value
         ]
         return self.quarantine_assets(task_id, ready_ids)
+
+    def start_quarantine_job(
+        self, task_id: str, asset_ids: list[str] | None = None
+    ) -> dict[str, Any]:
+        task = self.get_task(task_id)
+        latest = self._latest_assets(task)
+        requested = list(latest) if asset_ids is None else list(dict.fromkeys(asset_ids))
+        ready_ids = [
+            asset_id
+            for asset_id in requested
+            if asset_id in latest
+            and latest[asset_id].get("review_status")
+            == ReviewStatus.READY_TO_QUARANTINE.value
+        ]
+        with self._lock:
+            if any(
+                job["task_id"] == task_id and job["status"] == "running"
+                for job in self._quarantine_jobs.values()
+            ):
+                raise ValueError("A quarantine operation is already running for this task")
+            job_id = uuid.uuid4().hex
+            job = {
+                "job_id": job_id,
+                "task_id": task_id,
+                "status": "running",
+                "total": len(ready_ids),
+                "completed": 0,
+                "succeeded": 0,
+                "failed": 0,
+                "current_asset": None,
+                "completed_asset_ids": [],
+                "failed_items": [],
+                "started_at": _now(),
+                "finished_at": None,
+            }
+            self._quarantine_jobs[job_id] = job
+            thread = threading.Thread(
+                target=self._run_quarantine_job,
+                args=(task, job_id, ready_ids),
+                daemon=True,
+            )
+            self._quarantine_threads[job_id] = thread
+            thread.start()
+            return dict(job)
+
+    def get_quarantine_job(self, task_id: str, job_id: str) -> dict[str, Any]:
+        self.get_task(task_id)
+        with self._lock:
+            job = self._quarantine_jobs.get(job_id)
+            if not job or job["task_id"] != task_id:
+                raise KeyError(f"Unknown quarantine job: {job_id}")
+            return dict(job)
+
+    def _run_quarantine_job(
+        self, task: TaskState, job_id: str, asset_ids: list[str]
+    ) -> None:
+        try:
+            for asset_id in asset_ids:
+                record = self._latest_assets(task).get(asset_id, {})
+                with self._lock:
+                    self._quarantine_jobs[job_id]["current_asset"] = record.get(
+                        "group_key", asset_id
+                    )
+                operations = self.quarantine_assets(task.task_id, [asset_id])
+                succeeded = bool(operations and operations[0].get("status") == "completed")
+                with self._lock:
+                    job = self._quarantine_jobs[job_id]
+                    job["completed"] += 1
+                    job["succeeded" if succeeded else "failed"] += 1
+                    if succeeded:
+                        job["completed_asset_ids"].append(asset_id)
+                    else:
+                        job["failed_items"].append(
+                            {
+                                "asset_id": asset_id,
+                                "group_key": record.get("group_key", asset_id),
+                                "error": (
+                                    operations[0].get("error", "Unknown failure")
+                                    if operations
+                                    else "Record is no longer ready to quarantine"
+                                ),
+                            }
+                        )
+            with self._lock:
+                job = self._quarantine_jobs[job_id]
+                job["status"] = "completed"
+                job["current_asset"] = None
+                job["finished_at"] = _now()
+        except Exception as error:
+            with self._lock:
+                job = self._quarantine_jobs[job_id]
+                job["status"] = "failed"
+                job["error"] = str(error)
+                job["finished_at"] = _now()
 
     def quarantine_assets(self, task_id: str, asset_ids: list[str]) -> list[dict[str, Any]]:
         task = self.get_task(task_id)
@@ -702,6 +805,15 @@ def _record_contains_ocr(record: dict[str, Any], keyword: str) -> bool:
         for video in record.get("videos", [])
         for frame in video.get("frames", [])
     )
+
+
+def _record_contains_path(record: dict[str, Any], query: str) -> bool:
+    values = [
+        record.get("directory", ""),
+        record.get("group_key", ""),
+        *record.get("files", []),
+    ]
+    return any(query in str(value).casefold() for value in values)
 
 
 def _directory_effect(directory: Path, records: list[dict[str, Any]]) -> dict[str, Any]:

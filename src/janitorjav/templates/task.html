@@ -17,6 +17,7 @@
     [hidden] { display:none !important; }
     .muted { color:#9ca3af; } .frames a { margin-right:8px; } .frames a.flagged { color:#f87171; font-weight:700; } dialog { max-width:92vw; max-height:92vh; background:#111827; color:#fff; border:1px solid #4b5563; }
     dialog img { max-width:85vw; max-height:70vh; display:block; margin:auto; } pre { white-space:pre-wrap; }
+    .operation-progress progress { width:min(620px,100%); height:18px; vertical-align:middle; }
   </style>
 </head>
 <body>
@@ -32,6 +33,7 @@
     <label><input type="checkbox" id="tagged-only" checked onchange="loadAssets(1)">仅显示带标签</label>
     <select id="page-size" onchange="loadAssets(1)"><option>25</option><option selected>50</option><option>100</option></select>
     <input id="tag-filter" placeholder="标签筛选" onchange="loadAssets(1)">
+    <input id="path-query" placeholder="搜索路径" onchange="loadAssets(1)">
     <input id="ocr-keyword" placeholder="OCR关键词" onchange="loadAssets(1)"><button onclick="selectByKeyword()">跨页全选关键词</button>
     <select id="status-filter" onchange="statusFilterChanged()"><option value="">全部状态</option><option value="pending" selected>待处理</option><option value="keep">保留</option><option value="ready_to_quarantine">待隔离</option><option value="quarantined">已隔离</option><option value="quarantine_failed">隔离失败</option><option value="restored">已恢复</option></select>
     <input id="max-duration" type="number" placeholder="时长≤秒" onchange="loadAssets(1)"><input id="min-duration" type="number" placeholder="时长≥秒" onchange="loadAssets(1)">
@@ -42,6 +44,7 @@
     <button id="batch-keep" onclick="review('keep')">批量保留</button><button id="batch-mark" onclick="review('ready_to_quarantine')">批量标记隔离</button>
     <button id="quarantine-selected" class="danger" onclick="quarantine()" hidden>执行所选隔离</button><button id="quarantine-all" class="danger" onclick="quarantineReady()" hidden>执行全部待隔离</button><button id="restore-selected" onclick="restore()" hidden>恢复所选</button>
   </div>
+  <div id="operation-progress" class="summary operation-progress" hidden><b id="operation-progress-title">正在隔离</b><br><progress id="operation-progress-bar" value="0" max="1"></progress> <span id="operation-progress-count">0/0</span><div id="operation-progress-current" class="muted"></div><div id="operation-progress-errors"></div></div>
   <div id="assets"></div><div class="toolbar" id="pager"></div>
   <dialog id="preview"><button onclick="preview.close()">关闭</button><img id="preview-image"><pre id="preview-text"></pre></dialog>
 <script>
@@ -53,7 +56,7 @@ function renderTaskControls(t){let html=''; if(t.status==='running'&&!t.pause_re
 async function loadAssets(page=currentPage){
   currentPage=page;
   const params=new URLSearchParams({page, page_size:document.getElementById('page-size').value, tagged_only:document.getElementById('tagged-only').checked});
-  const fields={tag:'tag-filter',status:'status-filter',ocr_keyword:'ocr-keyword',min_duration:'min-duration',max_duration:'max-duration',max_width:'max-width',max_height:'max-height'};
+  const fields={tag:'tag-filter',status:'status-filter',path_query:'path-query',ocr_keyword:'ocr-keyword',min_duration:'min-duration',max_duration:'max-duration',max_width:'max-width',max_height:'max-height'};
   for(const [key,id] of Object.entries(fields)){const value=document.getElementById(id).value;if(value!=='')params.set(key,value)}
   const data=await api(`/api/tasks/${taskId}/assets?${params}`);
   currentItems=data.items;
@@ -78,19 +81,22 @@ function updateSelectionToggle(){const boxes=[...document.querySelectorAll('.pic
 function togglePageSelection(){const boxes=[...document.querySelectorAll('.pick')]; const allSelected=boxes.length>0&&boxes.every(x=>x.checked); boxes.forEach(x=>{x.checked=!allSelected;if(x.checked)selectedIds.add(x.value);else selectedIds.delete(x.value)}); updateSelectionToggle();}
 async function selectByScore(){const threshold=Number.parseInt(document.getElementById('score-threshold').value,10);if(Number.isNaN(threshold))return alert('请输入最低分数');const params=selectionParams();params.set('min_score',threshold);const data=await api(`/api/tasks/${taskId}/matching-asset-ids?${params}`);applyCrossPageSelection(data.asset_ids);alert(`已跨页选择 ${data.total} 条分数不低于 ${threshold} 的记录`);}
 async function selectByKeyword(){const keyword=document.getElementById('ocr-keyword').value.trim();if(!keyword)return alert('请先输入 OCR 关键词');const params=selectionParams();params.set('ocr_keyword',keyword);const data=await api(`/api/tasks/${taskId}/matching-asset-ids?${params}`);applyCrossPageSelection(data.asset_ids);alert(`已跨页选择 ${data.total} 条包含“${keyword}”的记录`);}
-function selectionParams(){const params=new URLSearchParams({tagged_only:document.getElementById('tagged-only').checked});const fields={tag:'tag-filter',status:'status-filter',ocr_keyword:'ocr-keyword',min_duration:'min-duration',max_duration:'max-duration',max_width:'max-width',max_height:'max-height'};for(const [key,id] of Object.entries(fields)){const value=document.getElementById(id).value;if(value!=='')params.set(key,value)}return params;}
+function selectionParams(){const params=new URLSearchParams({tagged_only:document.getElementById('tagged-only').checked});const fields={tag:'tag-filter',status:'status-filter',path_query:'path-query',ocr_keyword:'ocr-keyword',min_duration:'min-duration',max_duration:'max-duration',max_width:'max-width',max_height:'max-height'};for(const [key,id] of Object.entries(fields)){const value=document.getElementById(id).value;if(value!=='')params.set(key,value)}return params;}
 function applyCrossPageSelection(ids){selectedIds.clear();for(const id of ids)selectedIds.add(id);renderCurrentBatch();}
 async function review(status){const ids=selected(); if(!ids.length)return alert('请先选择项目'); await api(`/api/tasks/${taskId}/review`,{method:'POST',body:JSON.stringify({asset_ids:ids,status})}); removeReviewed(ids,status);}
 async function reviewOne(assetId,status){await api(`/api/tasks/${taskId}/review`,{method:'POST',body:JSON.stringify({asset_ids:[assetId],status})}); removeReviewed([assetId],status);}
-async function quarantine(){const ids=selected(); if(!ids.length)return alert('请先选择项目'); if(!confirm(`确认隔离 ${ids.length} 个审核单元？`))return; const d=await api(`/api/tasks/${taskId}/quarantine`,{method:'POST',body:JSON.stringify({asset_ids:ids})}); if(!d.operations.length)return alert('完成 0 个：所选记录尚未标记为待隔离，或状态已经变化。'); const completed=d.operations.filter(x=>x.status==='completed').map(x=>x.asset_id); const failed=d.operations.length-completed.length; removeReviewed(completed,'quarantined'); alert(`完成 ${completed.length} 个，失败 ${failed} 个`);}
-async function quarantineReady(){const query=await api(`/api/tasks/${taskId}/assets?page=1&page_size=1&tagged_only=false&status=ready_to_quarantine`); if(!query.total)return alert('没有已标记待隔离的记录'); if(!confirm(`确认执行全部 ${query.total} 个已标记隔离的审核单元？\n文件将被移动到隔离区。`))return; const d=await api(`/api/tasks/${taskId}/quarantine-ready`,{method:'POST'}); const failed=d.operations.filter(x=>x.status!=='completed').length; alert(`完成 ${d.operations.length-failed} 个，失败 ${failed} 个`); await loadAssets();}
+async function quarantine(){const ids=selected(); if(!ids.length)return alert('请先选择项目'); if(!confirm(`确认隔离 ${ids.length} 个审核单元？`))return; const job=await api(`/api/tasks/${taskId}/quarantine-job`,{method:'POST',body:JSON.stringify({asset_ids:ids})});if(!job.total)return alert('完成 0 个：所选记录尚未标记为待隔离，或状态已经变化。');rememberQuarantineJob(job.job_id,false);await watchQuarantineJob(job.job_id,false);}
+async function quarantineReady(){const query=await api(`/api/tasks/${taskId}/assets?page=1&page_size=1&tagged_only=false&status=ready_to_quarantine`); if(!query.total)return alert('没有已标记待隔离的记录'); if(!confirm(`确认执行全部 ${query.total} 个已标记隔离的审核单元？\n文件将被移动到隔离区。`))return; const job=await api(`/api/tasks/${taskId}/quarantine-ready-job`,{method:'POST'});rememberQuarantineJob(job.job_id,true);await watchQuarantineJob(job.job_id,true);}
+function rememberQuarantineJob(jobId,reloadWhenDone){localStorage.setItem(`janitorjav-quarantine-${taskId}`,JSON.stringify({jobId,reloadWhenDone}));}
+async function watchQuarantineJob(jobId,reloadWhenDone){const panel=document.getElementById('operation-progress');panel.hidden=false;while(true){const job=await api(`/api/tasks/${taskId}/quarantine-jobs/${jobId}`);document.getElementById('operation-progress-bar').max=Math.max(1,job.total);document.getElementById('operation-progress-bar').value=job.completed;document.getElementById('operation-progress-count').textContent=`${job.completed}/${job.total}　成功 ${job.succeeded}　失败 ${job.failed}`;document.getElementById('operation-progress-current').textContent=job.current_asset?`正在处理：${job.current_asset}`:'';document.getElementById('operation-progress-errors').innerHTML=(job.failed_items||[]).map(x=>`<div class="evidence-summary">失败：${esc(x.group_key)} — ${esc(x.error)}</div>`).join('');if(job.status!=='running'){localStorage.removeItem(`janitorjav-quarantine-${taskId}`);document.getElementById('operation-progress-title').textContent=job.status==='completed'?'隔离完成':'隔离失败';if(reloadWhenDone)await loadAssets();else removeReviewed(job.completed_asset_ids||[],'quarantined');alert(`完成 ${job.succeeded} 个，失败 ${job.failed} 个${job.error?`\n${job.error}`:''}`);break}await new Promise(resolve=>setTimeout(resolve,500));}}
+function resumeQuarantineJob(){const saved=localStorage.getItem(`janitorjav-quarantine-${taskId}`);if(!saved)return;try{const job=JSON.parse(saved);watchQuarantineJob(job.jobId,job.reloadWhenDone).catch(()=>localStorage.removeItem(`janitorjav-quarantine-${taskId}`));}catch{localStorage.removeItem(`janitorjav-quarantine-${taskId}`);}}
 async function restore(){const ids=selected(); if(!ids.length)return alert('请先选择项目'); if(!confirm(`确认恢复 ${ids.length} 个审核单元？`))return; const d=await api(`/api/tasks/${taskId}/restore`,{method:'POST',body:JSON.stringify({asset_ids:ids})}); alert(`完成 ${d.operations.length} 个操作`); await loadAssets();}
 async function restoreAsset(assetId){if(!confirm('确认恢复这个资产组？'))return; const d=await api(`/api/tasks/${taskId}/restore`,{method:'POST',body:JSON.stringify({asset_ids:[assetId]})}); alert(`完成 ${d.operations.length} 个操作`); await loadAssets();}
 async function directoryAction(action,directory){if(!confirm(`确认对整个目录执行操作？\n${directory}`))return; try{await api(`/api/tasks/${taskId}/${action}`,{method:'POST',body:JSON.stringify({directory})}); await loadAssets();}catch(e){alert(e.message)}}
 async function taskControl(action){try{const t=await api(`/api/tasks/${taskId}/${action}`,{method:'POST'}); renderTaskControls(t); await refreshStatus();}catch(e){alert(e.message)}}
 async function openDir(path){await api(`/api/tasks/${taskId}/open-directory?path=${encodeURIComponent(path)}`,{method:'POST'});}
 function showFrame(event,f){event.preventDefault(); document.getElementById('preview-image').src=`/api/tasks/${taskId}/evidence?path=${encodeURIComponent(f.image_path)}`; document.getElementById('preview-text').textContent=`时间: ${f.timestamp_seconds}s\n来源: ${f.requested_positions.join(', ')}\n置信度: ${f.max_confidence??''}\nOCR:\n${f.ocr_text}\n\n命中:\n${JSON.stringify(f.matches,null,2)}`; document.getElementById('preview').showModal();}
-refreshStatus(); loadAssets(1);
+refreshStatus(); loadAssets(1); resumeQuarantineJob();
 </script>
 </body>
 </html>

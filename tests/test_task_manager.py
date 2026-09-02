@@ -103,6 +103,44 @@ def test_quarantine_and_restore_round_trip(tmp_path: Path) -> None:
     assert not target.exists()
 
 
+def test_quarantine_job_reports_progress_and_completion(tmp_path: Path) -> None:
+    scan = tmp_path / "JAV"
+    asset_dir = scan / "ABC-123"
+    asset_dir.mkdir(parents=True)
+    source = asset_dir / "ABC-123.mp4"
+    source.write_bytes(b"video")
+    manager = TaskManager(EmptyOCR(), workspace_root=tmp_path / "tasks")
+    task = manager.create_task(scan)
+    stat = source.stat()
+    append_jsonl(
+        task.workspace / "assets.jsonl",
+        {
+            "asset_id": "asset-1",
+            "directory": str(asset_dir),
+            "group_key": "ABC-123",
+            "videos": [],
+            "files": [str(source)],
+            "tags": ["url_detected"],
+            "review_status": ReviewStatus.READY_TO_QUARANTINE.value,
+            "snapshots": {str(source): {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}},
+        },
+        durable=False,
+    )
+
+    started = manager.start_quarantine_job(task.task_id, ["asset-1"])
+    for _ in range(100):
+        job = manager.get_quarantine_job(task.task_id, started["job_id"])
+        if job["status"] != "running":
+            break
+        time.sleep(0.01)
+
+    assert job["status"] == "completed"
+    assert job["total"] == job["completed"] == job["succeeded"] == 1
+    assert job["failed"] == 0
+    assert job["failed_items"] == []
+    assert job["completed_asset_ids"] == ["asset-1"]
+
+
 def test_source_change_blocks_quarantine(tmp_path: Path) -> None:
     scan = tmp_path / "JAV"
     scan.mkdir()
@@ -181,6 +219,8 @@ def test_matching_asset_ids_filters_score_across_pages(tmp_path: Path) -> None:
     assert manager.assets(task.task_id, tagged_only=False, ocr_keyword="娱乐城")["total"] == 1
     assert manager.assets(task.task_id, tagged_only=False, max_duration=300)["total"] == 1
     assert manager.assets(task.task_id, tagged_only=False, max_width=1280, max_height=720)["total"] == 1
+    assert manager.assets(task.task_id, tagged_only=False, path_query="high")["total"] == 1
+    assert manager.matching_asset_ids(task.task_id, path_query="HIGH", status="pending") == ["high"]
 
 
 def test_whole_directory_quarantine_includes_unassigned_and_restores(tmp_path: Path) -> None:
