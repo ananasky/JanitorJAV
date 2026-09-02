@@ -54,6 +54,8 @@ def test_pages_render(tmp_path: Path) -> None:
     assert 'a.flagged' in response.text
     assert 'id="page-jump"' in response.text
     assert '>跳转</button>' in response.text
+    assert '执行全部已标记隔离' in response.text
+    assert 'reviewOne' in response.text
 
 
 def test_rejects_non_empty_quarantine(tmp_path: Path) -> None:

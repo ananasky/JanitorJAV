@@ -20,6 +20,7 @@ from .ocr import OCREngine
 from .paths import quarantine_target, validate_or_create_quarantine
 from .pipeline import ScanPipeline, ScanPipelineConfig, stable_asset_id
 from .serialization import group_to_dict, snapshot_paths
+from .scoring import evidence_score
 
 
 IGNORED_SYSTEM_NAMES = frozenset(
@@ -220,6 +221,11 @@ class TaskManager:
                 for asset_id in operation.get("asset_ids", []):
                     restore_modes.pop(asset_id, None)
         values = list(latest.values())
+        for record in values:
+            score, label, summary = evidence_score(record)
+            record["risk_score"] = score
+            record["risk_label"] = label
+            record["evidence_summary"] = summary
         if tagged_only:
             values = [record for record in values if record.get("tags")]
         if tag:
@@ -234,7 +240,13 @@ class TaskManager:
             values = [record for record in values if (record.get("max_width") or 0) >= min_width]
         if min_height is not None:
             values = [record for record in values if (record.get("max_height") or 0) >= min_height]
-        values.sort(key=lambda record: (record.get("directory", "").casefold(), record.get("group_key", "").casefold()))
+        values.sort(
+            key=lambda record: (
+                -record.get("risk_score", 0),
+                record.get("directory", "").casefold(),
+                record.get("group_key", "").casefold(),
+            )
+        )
         total = len(values)
         start = max(0, (page - 1) * page_size)
         page_values = values[start : start + page_size]
@@ -260,6 +272,15 @@ class TaskManager:
             record["review_status"] = status.value
             record["updated_at"] = _now()
             append_jsonl(task.workspace / "assets.jsonl", record)
+
+    def quarantine_ready_assets(self, task_id: str) -> list[dict[str, Any]]:
+        task = self.get_task(task_id)
+        ready_ids = [
+            asset_id
+            for asset_id, record in self._latest_assets(task).items()
+            if record.get("review_status") == ReviewStatus.READY_TO_QUARANTINE.value
+        ]
+        return self.quarantine_assets(task_id, ready_ids)
 
     def quarantine_assets(self, task_id: str, asset_ids: list[str]) -> list[dict[str, Any]]:
         task = self.get_task(task_id)

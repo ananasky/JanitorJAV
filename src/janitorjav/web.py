@@ -146,6 +146,13 @@ def create_app(manager: TaskManager) -> FastAPI:
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
+    @app.post("/api/tasks/{task_id}/quarantine-ready")
+    def quarantine_ready_assets(task_id: str) -> dict[str, Any]:
+        try:
+            return {"operations": manager.quarantine_ready_assets(task_id)}
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
     @app.post("/api/tasks/{task_id}/restore")
     def restore_assets(task_id: str, payload: AssetActionRequest) -> dict[str, Any]:
         try:
