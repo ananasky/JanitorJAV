@@ -30,22 +30,27 @@ class PaddleOCREngine:
             raise OCRConfigurationError(f"Unable to initialize PaddleOCR on {device}: {error}") from error
 
     def recognize(self, image_paths: Sequence[Path]) -> list[list[OCRLine]]:
+        if not image_paths:
+            return []
+        try:
+            results = list(self._ocr.predict(input=[str(path) for path in image_paths]))
+        except Exception as error:
+            raise RuntimeError(f"PaddleOCR batch failed: {error}") from error
+        if len(results) != len(image_paths):
+            raise RuntimeError(
+                f"PaddleOCR returned {len(results)} results for {len(image_paths)} images"
+            )
         output: list[list[OCRLine]] = []
-        for path in image_paths:
-            try:
-                results = list(self._ocr.predict(input=str(path)))
-            except Exception as error:
-                raise RuntimeError(f"PaddleOCR failed for {path}: {error}") from error
+        for result in results:
             lines: list[OCRLine] = []
-            for result in results:
-                payload = _result_payload(result)
-                texts = payload.get("rec_texts", [])
-                scores = payload.get("rec_scores", [])
-                boxes = payload.get("dt_polys", payload.get("rec_polys", []))
-                for index, text in enumerate(texts):
-                    score = float(scores[index]) if index < len(scores) else 0.0
-                    box = _box_tuple(boxes[index]) if index < len(boxes) else ()
-                    lines.append(OCRLine(str(text), score, box))
+            payload = _result_payload(result)
+            texts = payload.get("rec_texts", [])
+            scores = payload.get("rec_scores", [])
+            boxes = payload.get("dt_polys", payload.get("rec_polys", []))
+            for index, text in enumerate(texts):
+                score = float(scores[index]) if index < len(scores) else 0.0
+                box = _box_tuple(boxes[index]) if index < len(boxes) else ()
+                lines.append(OCRLine(str(text), score, box))
             output.append(lines)
         return output
 
@@ -67,4 +72,3 @@ def _box_tuple(value: Any) -> tuple[tuple[float, float], ...]:
         return tuple((float(point[0]), float(point[1])) for point in value)
     except (TypeError, ValueError, IndexError):
         return ()
-

@@ -26,6 +26,10 @@ class ReviewActionRequest(AssetActionRequest):
     status: ReviewStatus
 
 
+class DirectoryActionRequest(BaseModel):
+    directory: str
+
+
 def create_app(manager: TaskManager) -> FastAPI:
     app = FastAPI(title="JanitorJAV", version="0.1.0")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -135,6 +139,24 @@ def create_app(manager: TaskManager) -> FastAPI:
             return {"operations": manager.restore_assets(task_id, payload.asset_ids)}
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+
+    @app.post("/api/tasks/{task_id}/quarantine-directory")
+    def quarantine_directory(task_id: str, payload: DirectoryActionRequest) -> dict[str, Any]:
+        try:
+            return manager.quarantine_directory(task_id, Path(payload.directory))
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except (OSError, ValueError, RuntimeError) as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.post("/api/tasks/{task_id}/restore-directory")
+    def restore_directory(task_id: str, payload: DirectoryActionRequest) -> dict[str, Any]:
+        try:
+            return manager.restore_directory(task_id, Path(payload.directory))
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except (OSError, ValueError, RuntimeError) as error:
+            raise HTTPException(409, str(error)) from error
 
     @app.get("/api/tasks/{task_id}/evidence")
     def evidence(task_id: str, path: str) -> FileResponse:

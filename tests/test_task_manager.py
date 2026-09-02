@@ -68,3 +68,52 @@ def test_source_change_blocks_quarantine(tmp_path: Path) -> None:
     assert "changed since scan" in operation["error"]
     assert source.exists()
 
+
+def test_whole_directory_quarantine_includes_unassigned_and_restores(tmp_path: Path) -> None:
+    scan = tmp_path / "JAV"
+    directory = scan / "2026" / "ABC-123"
+    directory.mkdir(parents=True)
+    first = directory / "ABC-123-A.mp4"
+    second = directory / "ABC-123-B.mp4"
+    extra = directory / "notes.txt"
+    junk = directory / "Thumbs.db"
+    for path in (first, second, extra, junk):
+        path.write_text(path.name, encoding="utf-8")
+    manager = TaskManager(EmptyOCR(), workspace_root=tmp_path / "tasks")
+    task = manager.create_task(scan)
+
+    for index, source in enumerate((first, second), start=1):
+        stat = source.stat()
+        append_jsonl(
+            task.workspace / "assets.jsonl",
+            {
+                "asset_id": f"asset-{index}",
+                "directory": str(directory),
+                "group_key": source.stem,
+                "files": [str(source)],
+                "tags": ["url_detected"],
+                "review_status": ReviewStatus.READY_TO_QUARANTINE.value,
+                "snapshots": {str(source): {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}},
+            },
+            durable=False,
+        )
+
+    listed = manager.assets(task.task_id, tagged_only=False)["items"]
+    effect = listed[0]["directory_effect"]
+    assert effect["all_assets_ready"] is True
+    assert effect["effectively_empty"] is False
+    assert effect["remaining_entries"] == [str(extra)]
+    assert effect["system_entries"] == [str(junk)]
+
+    operation = manager.quarantine_directory(task.task_id, directory)
+    quarantined = task.quarantine_root / "2026" / "ABC-123"
+    assert operation["status"] == "completed"
+    assert not directory.exists()
+    assert (quarantined / "notes.txt").exists()
+    assert (quarantined / "Thumbs.db").exists()
+
+    operation = manager.restore_directory(task.task_id, directory)
+    assert operation["status"] == "completed"
+    assert extra.exists()
+    assert junk.exists()
+    assert not quarantined.exists()

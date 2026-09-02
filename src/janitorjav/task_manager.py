@@ -20,6 +20,20 @@ from .pipeline import ScanPipeline, stable_asset_id
 from .serialization import group_to_dict, snapshot_paths
 
 
+IGNORED_SYSTEM_NAMES = frozenset(
+    {
+        ".ds_store",
+        "thumbs.db",
+        "desktop.ini",
+        ".spotlight-v100",
+        ".trashes",
+        ".fseventsd",
+        "system volume information",
+        "$recycle.bin",
+    }
+)
+
+
 def default_workspace_root() -> Path:
     base = os.environ.get("LOCALAPPDATA")
     if base:
@@ -171,6 +185,13 @@ class TaskManager:
         if min_height is not None:
             values = [record for record in values if (record.get("max_height") or 0) >= min_height]
         values.sort(key=lambda record: (record.get("directory", "").casefold(), record.get("group_key", "").casefold()))
+        by_directory: dict[str, list[dict[str, Any]]] = {}
+        for record in latest.values():
+            by_directory.setdefault(record.get("directory", ""), []).append(record)
+        for record in values:
+            record["directory_effect"] = _directory_effect(
+                Path(record["directory"]), by_directory.get(record["directory"], [])
+            )
         total = len(values)
         start = max(0, (page - 1) * page_size)
         return {"items": values[start : start + page_size], "total": total, "page": page, "page_size": page_size}
@@ -223,6 +244,100 @@ class TaskManager:
             result = self._restore_record(task, record, source_operation)
             results.append(result)
         return results
+
+    def quarantine_directory(self, task_id: str, directory: Path) -> dict[str, Any]:
+        task = self.get_task(task_id)
+        directory = directory.resolve()
+        if not _is_inside(directory, task.scan_root.resolve()):
+            raise ValueError("Directory is outside scan root")
+        records = [
+            record
+            for record in self._latest_assets(task).values()
+            if Path(record.get("directory", "")).resolve() == directory
+        ]
+        if not records or not all(
+            record.get("review_status") == ReviewStatus.READY_TO_QUARANTINE.value
+            for record in records
+        ):
+            raise ValueError("All assets in the directory must be ready to quarantine")
+        for record in records:
+            _validate_snapshots(record)
+        target = quarantine_target(task.scan_root, task.quarantine_root, directory)
+        operation = {
+            "operation_type": "quarantine_directory",
+            "asset_ids": [record["asset_id"] for record in records],
+            "source": str(directory),
+            "target": str(target),
+            "started_at": _now(),
+            "status": "running",
+        }
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                raise RuntimeError(f"Quarantine target exists: {target}")
+            directory.replace(target)
+            operation["status"] = "completed"
+            status = ReviewStatus.QUARANTINED
+        except Exception as error:
+            operation["status"] = "failed"
+            operation["error"] = str(error)
+            status = ReviewStatus.QUARANTINE_FAILED
+        operation["completed_at"] = _now()
+        append_jsonl(task.workspace / "operations.jsonl", operation)
+        for record in records:
+            updated = dict(record)
+            updated["review_status"] = status.value
+            updated["updated_at"] = _now()
+            append_jsonl(task.workspace / "assets.jsonl", updated)
+        return operation
+
+    def restore_directory(self, task_id: str, directory: Path) -> dict[str, Any]:
+        task = self.get_task(task_id)
+        directory = directory.resolve()
+        source_operation = next(
+            (
+                item
+                for item in reversed(list(read_jsonl(task.workspace / "operations.jsonl")))
+                if item.get("operation_type") == "quarantine_directory"
+                and Path(item.get("source", "")).resolve() == directory
+                and item.get("status") == "completed"
+            ),
+            None,
+        )
+        if source_operation is None:
+            raise ValueError("Completed directory quarantine operation not found")
+        quarantine_path = Path(source_operation["target"])
+        operation = {
+            "operation_type": "restore_directory",
+            "asset_ids": source_operation["asset_ids"],
+            "source": str(quarantine_path),
+            "target": str(directory),
+            "started_at": _now(),
+            "status": "running",
+        }
+        try:
+            if directory.exists():
+                raise RuntimeError(f"Restore target exists: {directory}")
+            directory.parent.mkdir(parents=True, exist_ok=True)
+            quarantine_path.replace(directory)
+            _prune_empty_parents(quarantine_path.parent, stop_at=task.quarantine_root)
+            operation["status"] = "completed"
+            status = ReviewStatus.RESTORED
+        except Exception as error:
+            operation["status"] = "failed"
+            operation["error"] = str(error)
+            status = ReviewStatus.QUARANTINE_FAILED
+        operation["completed_at"] = _now()
+        append_jsonl(task.workspace / "operations.jsonl", operation)
+        latest = self._latest_assets(task)
+        for asset_id in source_operation["asset_ids"]:
+            record = latest.get(asset_id)
+            if record:
+                updated = dict(record)
+                updated["review_status"] = status.value
+                updated["updated_at"] = _now()
+                append_jsonl(task.workspace / "assets.jsonl", updated)
+        return operation
 
     def _move_record(self, task: TaskState, record: dict[str, Any]) -> dict[str, Any]:
         files = [Path(value) for value in record.get("files", [])]
@@ -405,3 +520,54 @@ def _prune_empty_parents(path: Path, *, stop_at: Path) -> None:
         except OSError:
             break
         current = current.parent
+
+
+def _is_inside(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _validate_snapshots(record: dict[str, Any]) -> None:
+    expected = record.get("snapshots", {})
+    for value in record.get("files", []):
+        path = Path(value)
+        stat = path.stat()
+        snapshot = expected.get(str(path))
+        if not snapshot or stat.st_size != snapshot["size"] or stat.st_mtime_ns != snapshot["mtime_ns"]:
+            raise RuntimeError(f"Source changed since scan: {path}")
+
+
+def _is_system_entry(path: Path) -> bool:
+    name = path.name.casefold()
+    return name in IGNORED_SYSTEM_NAMES or name.startswith("._")
+
+
+def _directory_effect(directory: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
+    all_ready = bool(records) and all(
+        record.get("review_status") == ReviewStatus.READY_TO_QUARANTINE.value
+        for record in records
+    )
+    known = {
+        str(Path(value).resolve()).casefold()
+        for record in records
+        for value in record.get("files", [])
+    }
+    remaining: list[str] = []
+    system: list[str] = []
+    if directory.is_dir():
+        try:
+            for entry in directory.iterdir():
+                if str(entry.resolve()).casefold() in known:
+                    continue
+                (system if _is_system_entry(entry) else remaining).append(str(entry))
+        except OSError:
+            pass
+    return {
+        "all_assets_ready": all_ready,
+        "effectively_empty": all_ready and not remaining,
+        "remaining_entries": sorted(remaining, key=str.casefold),
+        "system_entries": sorted(system, key=str.casefold),
+    }
