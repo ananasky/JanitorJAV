@@ -22,6 +22,8 @@
     <h2>新建完整扫描</h2>
     <p>输入 Windows 本地目录、映射盘或 UNC 路径。隔离目录将自动创建在扫描根同级。</p>
     <input id="scan-root" placeholder="\\server\media\JAV">
+    <label>视频并行数 <input id="video-workers" type="number" min="1" max="8" value="1" style="width:80px"></label>
+    <span class="muted">（1–8；同时处理的视频数量）</span>
     <button onclick="createTask()">创建任务</button>
     <p id="create-error" class="error"></p>
   </section>
@@ -41,14 +43,14 @@ async function json(url, options={}) {
 async function createTask() {
   const error = document.getElementById('create-error'); error.textContent='';
   try {
-    const task = await json('/api/tasks', {method:'POST', body:JSON.stringify({scan_root:document.getElementById('scan-root').value})});
+    const task = await json('/api/tasks', {method:'POST', body:JSON.stringify({scan_root:document.getElementById('scan-root').value,video_workers:Number(document.getElementById('video-workers').value)})});
     await json(`/api/tasks/${task.task_id}/start`, {method:'POST'});
     location.href = `/tasks/${task.task_id}`;
   } catch (e) { error.textContent=e.message; }
 }
 async function loadTasks() {
   const tasks = await json('/api/tasks');
-  document.getElementById('tasks').innerHTML = tasks.map(t => `<tr><td>${t.created_at}</td><td>${escapeHtml(t.scan_root)}</td><td>${t.status}</td><td>${t.completed}/${t.discovered}</td><td><a class="button" href="/tasks/${t.task_id}">打开</a> <button onclick="deleteTask('${t.task_id}')">删除记录</button></td></tr>`).join('');
+  document.getElementById('tasks').innerHTML = tasks.map(t => `<tr><td>${t.created_at}</td><td>${escapeHtml(t.scan_root)}<br><span class="muted">视频并行数：${t.video_workers}</span></td><td>${t.status}</td><td>${t.completed}/${t.discovered}</td><td><a class="button" href="/tasks/${t.task_id}">打开</a> <button onclick="deleteTask('${t.task_id}')">删除记录</button></td></tr>`).join('');
 }
 async function deleteTask(id){if(!confirm('只删除任务日志和证据，不影响媒体库或隔离区。确认？'))return;try{await json(`/api/tasks/${id}`,{method:'DELETE'});await loadTasks()}catch(e){alert(e.message)}}
 function escapeHtml(value) { const d=document.createElement('div'); d.textContent=value; return d.innerHTML; }

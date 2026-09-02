@@ -1,5 +1,8 @@
+import threading
+import time
 from pathlib import Path
 
+import janitorjav.task_manager as task_manager_module
 from janitorjav.jsonl import append_jsonl
 from janitorjav.models import ReviewStatus
 from janitorjav.ocr import OCRLine
@@ -11,6 +14,56 @@ class EmptyOCR:
 
     def recognize(self, image_paths: list[Path]) -> list[list[OCRLine]]:
         return [[] for _ in image_paths]
+
+
+def test_task_video_workers_are_persisted(tmp_path: Path) -> None:
+    scan = tmp_path / "JAV"
+    scan.mkdir()
+    workspace = tmp_path / "tasks"
+    manager = TaskManager(EmptyOCR(), workspace_root=workspace)
+    task = manager.create_task(scan, video_workers=6)
+
+    reloaded = TaskManager(EmptyOCR(), workspace_root=workspace)
+
+    assert reloaded.get_task(task.task_id).video_workers == 6
+
+
+def test_task_processes_multiple_videos_in_parallel(tmp_path: Path, monkeypatch) -> None:
+    class TrackingPipeline:
+        active = 0
+        max_active = 0
+        lock = threading.Lock()
+
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def scan_group(self, group):
+            with self.lock:
+                type(self).active += 1
+                type(self).max_active = max(type(self).max_active, type(self).active)
+            time.sleep(0.03)
+            with self.lock:
+                type(self).active -= 1
+            return group
+
+    monkeypatch.setattr(task_manager_module, "ScanPipeline", TrackingPipeline)
+    scan = tmp_path / "JAV"
+    for index in range(6):
+        directory = scan / f"ABC-{index:03d} title"
+        directory.mkdir(parents=True)
+        (directory / f"ABC-{index:03d}.mp4").write_bytes(b"video")
+    manager = TaskManager(EmptyOCR(), workspace_root=tmp_path / "tasks")
+    task = manager.create_task(scan, video_workers=3)
+
+    manager.start_task(task.task_id)
+    for _ in range(200):
+        if task.status == "completed":
+            break
+        time.sleep(0.01)
+
+    assert task.status == "completed"
+    assert task.completed == 6
+    assert TrackingPipeline.max_active == 3
 
 
 def test_quarantine_and_restore_round_trip(tmp_path: Path) -> None:

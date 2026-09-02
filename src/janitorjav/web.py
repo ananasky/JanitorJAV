@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.requests import Request
 
 from .models import ReviewStatus
@@ -16,6 +16,7 @@ from .task_manager import TaskManager
 
 class CreateTaskRequest(BaseModel):
     scan_root: str
+    video_workers: int = Field(default=1, ge=1, le=8)
 
 
 class AssetActionRequest(BaseModel):
@@ -53,7 +54,9 @@ def create_app(manager: TaskManager) -> FastAPI:
     @app.post("/api/tasks")
     def create_task(payload: CreateTaskRequest) -> dict[str, Any]:
         try:
-            return manager.create_task(Path(payload.scan_root)).to_dict()
+            return manager.create_task(
+                Path(payload.scan_root), video_workers=payload.video_workers
+            ).to_dict()
         except (OSError, ValueError) as error:
             raise HTTPException(400, str(error)) from error
 

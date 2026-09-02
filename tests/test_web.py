@@ -21,8 +21,9 @@ def test_create_and_complete_empty_task(tmp_path: Path) -> None:
     manager = TaskManager(EmptyOCR(), workspace_root=tmp_path / "tasks")
     client = TestClient(create_app(manager))
 
-    response = client.post("/api/tasks", json={"scan_root": str(scan_root)})
+    response = client.post("/api/tasks", json={"scan_root": str(scan_root), "video_workers": 7})
     assert response.status_code == 200
+    assert response.json()["video_workers"] == 7
     task_id = response.json()["task_id"]
     assert (tmp_path / "JanitorJAV_Quarantine").is_dir()
 
@@ -65,6 +66,19 @@ def test_rejects_non_empty_quarantine(tmp_path: Path) -> None:
     response = client.post("/api/tasks", json={"scan_root": str(scan_root)})
     assert response.status_code == 400
     assert "must be empty" in response.json()["detail"]
+
+
+def test_rejects_video_workers_outside_supported_range(tmp_path: Path) -> None:
+    scan_root = tmp_path / "JAV"
+    scan_root.mkdir()
+    manager = TaskManager(EmptyOCR(), workspace_root=tmp_path / "tasks")
+    client = TestClient(create_app(manager))
+
+    response = client.post(
+        "/api/tasks", json={"scan_root": str(scan_root), "video_workers": 9}
+    )
+
+    assert response.status_code == 422
 
 
 def test_delete_completed_task_removes_workspace(tmp_path: Path) -> None:

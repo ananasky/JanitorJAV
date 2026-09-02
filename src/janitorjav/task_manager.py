@@ -6,6 +6,7 @@ import shutil
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -52,6 +53,7 @@ class TaskState:
     scan_root: Path
     quarantine_root: Path
     workspace: Path
+    video_workers: int = 1
     status: str = "created"
     created_at: str = field(default_factory=_now)
     started_at: str | None = None
@@ -71,6 +73,7 @@ class TaskState:
             "scan_root": str(self.scan_root),
             "quarantine_root": str(self.quarantine_root),
             "workspace": str(self.workspace),
+            "video_workers": self.video_workers,
             "status": self.status,
             "created_at": self.created_at,
             "started_at": self.started_at,
@@ -93,9 +96,11 @@ class TaskManager:
         workspace_root: Path | None = None,
         *,
         frame_workers: int = 4,
+        video_workers: int = 1,
     ) -> None:
         self.ocr_engine = ocr_engine
         self.frame_workers = max(1, frame_workers)
+        self.default_video_workers = max(1, min(8, video_workers))
         self.workspace_root = workspace_root or default_workspace_root()
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self._tasks: dict[str, TaskState] = {}
@@ -103,13 +108,16 @@ class TaskManager:
         self._lock = threading.RLock()
         self._load_tasks()
 
-    def create_task(self, scan_root: Path) -> TaskState:
+    def create_task(self, scan_root: Path, *, video_workers: int | None = None) -> TaskState:
         scan_root = scan_root.resolve()
+        selected_workers = self.default_video_workers if video_workers is None else video_workers
+        if not 1 <= selected_workers <= 8:
+            raise ValueError("Video workers must be between 1 and 8")
         quarantine = validate_or_create_quarantine(scan_root)
         task_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
         workspace = self.workspace_root / task_id
         workspace.mkdir(parents=True)
-        task = TaskState(task_id, scan_root, quarantine, workspace)
+        task = TaskState(task_id, scan_root, quarantine, workspace, video_workers=selected_workers)
         with self._lock:
             self._tasks[task_id] = task
             self._save_task(task)
@@ -227,18 +235,19 @@ class TaskManager:
         if min_height is not None:
             values = [record for record in values if (record.get("max_height") or 0) >= min_height]
         values.sort(key=lambda record: (record.get("directory", "").casefold(), record.get("group_key", "").casefold()))
+        total = len(values)
+        start = max(0, (page - 1) * page_size)
+        page_values = values[start : start + page_size]
         by_directory: dict[str, list[dict[str, Any]]] = {}
         for record in latest.values():
             by_directory.setdefault(record.get("directory", ""), []).append(record)
-        for record in values:
+        for record in page_values:
             directory_value = record.get("directory", str(task.scan_root))
             record["restore_mode"] = restore_modes.get(record["asset_id"])
             record["directory_effect"] = _directory_effect(
                 Path(directory_value), by_directory.get(record.get("directory", ""), [])
             )
-        total = len(values)
-        start = max(0, (page - 1) * page_size)
-        return {"items": values[start : start + page_size], "total": total, "page": page, "page_size": page_size}
+        return {"items": page_values, "total": total, "page": page, "page_size": page_size}
 
     def set_review_status(self, task_id: str, asset_ids: list[str], status: ReviewStatus) -> None:
         task = self.get_task(task_id)
@@ -492,10 +501,8 @@ class TaskManager:
                 task.workspace / "evidence",
                 config=ScanPipelineConfig(frame_workers=self.frame_workers),
             )
-            for group in groups:
-                asset_id = stable_asset_id(group)
-                if asset_id in completed_ids:
-                    continue
+            pending_groups = [group for group in groups if stable_asset_id(group) not in completed_ids]
+            for batch_start in range(0, len(pending_groups), task.video_workers):
                 if task.stop_requested:
                     task.status = "cancelled"
                     task.stop_requested = False
@@ -509,17 +516,25 @@ class TaskManager:
                     task.stop_requested = False
                     break
                 task.status = "running"
-                task.current_file = str(group.directory / group.group_key)
+                batch = pending_groups[batch_start : batch_start + task.video_workers]
+                task.current_file = " | ".join(
+                    str(group.directory / group.group_key) for group in batch
+                )
                 self._save_task(task)
-                pipeline.scan_group(group)
-                record = group_to_dict(group, asset_id=asset_id)
-                record["snapshots"] = snapshot_paths(record)
-                record["scanned_at"] = _now()
-                append_jsonl(task.workspace / "assets.jsonl", record)
-                task.completed += 1
-                if record["tags"]:
-                    task.tagged += 1
-                self._save_task(task)
+                with ThreadPoolExecutor(
+                    max_workers=len(batch), thread_name_prefix="janitorjav-video"
+                ) as executor:
+                    futures = [executor.submit(pipeline.scan_group, group) for group in batch]
+                    for group, future in zip(batch, futures, strict=True):
+                        future.result()
+                        record = group_to_dict(group, asset_id=stable_asset_id(group))
+                        record["snapshots"] = snapshot_paths(record)
+                        record["scanned_at"] = _now()
+                        append_jsonl(task.workspace / "assets.jsonl", record)
+                        task.completed += 1
+                        if record["tags"]:
+                            task.tagged += 1
+                        self._save_task(task)
             else:
                 task.status = "completed"
                 task.completed_at = _now()
@@ -548,6 +563,7 @@ class TaskManager:
                     scan_root=Path(payload["scan_root"]),
                     quarantine_root=Path(payload["quarantine_root"]),
                     workspace=Path(payload["workspace"]),
+                    video_workers=payload.get("video_workers", self.default_video_workers),
                     status=payload["status"],
                     created_at=payload["created_at"],
                     started_at=payload.get("started_at"),

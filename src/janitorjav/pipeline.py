@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +38,7 @@ class ScanPipeline:
         self.ocr_engine = ocr_engine
         self.evidence_root = evidence_root
         self.config = config
+        self._ocr_lock = threading.Lock()
 
     def scan_group(self, group: AssetGroup) -> AssetGroup:
         if group.is_vr:
@@ -99,7 +101,8 @@ class ScanPipeline:
         if not extracted:
             return
         try:
-            batches = self.ocr_engine.recognize([path for _, path in extracted])
+            with self._ocr_lock:
+                batches = self.ocr_engine.recognize([path for _, path in extracted])
         except Exception:
             video.tags.add(Tag.OCR_FAILED)
             return
