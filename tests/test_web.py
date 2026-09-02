@@ -66,6 +66,8 @@ def test_pages_render(tmp_path: Path) -> None:
     assert 'id="quarantine-selected"' in response.text
     assert 'updateActionControls' in response.text
     assert '所选记录尚未标记为待隔离' in response.text
+    assert '识别汇总：' in response.text
+    assert 'frame_count} 帧' not in response.text
 
 
 def test_rejects_non_empty_quarantine(tmp_path: Path) -> None:
