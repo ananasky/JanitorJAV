@@ -56,7 +56,17 @@ def test_promotional_keyword_forces_score_to_200_even_for_weak_address() -> None
 
 
 def test_live_casino_keywords_force_score_to_200() -> None:
-    for keyword in ("真人美女", "荷官", "发牌"):
+    for keyword in (
+        "真人美女",
+        "荷官",
+        "发牌",
+        "裸聊",
+        "脱衣秀",
+        "激情视频",
+        "漂亮妹妹",
+        "幼幼",
+        "人兽",
+    ):
         score, label, _ = evidence_score(
             _record("example.com", frames=1, text=f"在线{keyword}")
         )
