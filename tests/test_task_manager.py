@@ -67,6 +67,8 @@ def test_source_change_blocks_quarantine(tmp_path: Path) -> None:
     assert operation["status"] == "failed"
     assert "changed since scan" in operation["error"]
     assert source.exists()
+    latest = manager.assets(task.task_id, tagged_only=False)["items"][0]
+    assert "source_changed_since_scan" in latest["tags"]
 
 
 def test_whole_directory_quarantine_includes_unassigned_and_restores(tmp_path: Path) -> None:

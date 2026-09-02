@@ -1,8 +1,8 @@
 # JanitorJAV 使用指南
 
-本文包含 JanitorJAV V1 计划中的正式使用流程，以及当前开发预览版本的本地验证方法。
+本文说明 JanitorJAV 当前版本的安装、扫描、审核、隔离和恢复流程。
 
-> 当前状态：扫描核心正在开发中。Web 审核界面、Windows CUDA OCR、完整任务调度、隔离和恢复尚未全部可用。请勿将当前代码直接用于移动正式媒体库文件。
+> 当前版本已经完成端到端验证，但仍属于早期版本。首次处理正式媒体库前，请先选择一个小型测试目录确认 OCR、标签和隔离路径符合预期。
 
 ## 1. V1 适用场景
 
@@ -71,7 +71,7 @@ JanitorJAV 不保存 SMB 用户名或密码。请先在 Windows 中打开或挂�
 
 ## 4. 安装准备
 
-以下是 V1 预定流程，最终安装脚本完成后会进一步简化。
+以下命令用于安装当前版本。
 
 ### 4.1 获取代码
 
@@ -88,7 +88,11 @@ py -3.11 -m venv .venv
 .venv\Scripts\python -m pip install -e ".[dev]"
 ```
 
-当前依赖只包含开发和测试基础。CUDA OCR 依赖将在 OCR 适配器完成后补充。
+也可以直接运行项目提供的 Windows 安装脚本。它会检查 FFmpeg，创建 Python 3.11 虚拟环境，安装项目依赖、PaddlePaddle CUDA 12.6 和 PaddleOCR，并运行测试：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup-windows.ps1
+```
 
 ### 4.3 检查 FFmpeg
 
@@ -105,16 +109,29 @@ ffprobe -version
 .venv\Scripts\python -m pytest
 ```
 
-## 5. 正式 V1 操作流程
-
-本节描述 V1 完成后的目标使用方式；当前开发预览尚未提供全部页面和操作。
+## 5. 操作流程
 
 ### 5.1 启动
 
-1. 双击项目提供的一键启动脚本。
-2. 等待环境检查完成。
-3. 浏览器自动打开仅本机访问的审核页面。
-4. 页面应显示 FFmpeg、ffprobe、OCR、CUDA 和可用 GPU 状态。
+前台启动并自动打开浏览器：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+```
+
+后台启动：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-background.ps1
+```
+
+后台启动使用当前 Windows 用户的按需计划任务，不会配置开机自启。打开 <http://127.0.0.1:8765> 进入审核页面。
+
+停止后台服务：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\stop-background.ps1
+```
 
 ### 5.2 创建扫描任务
 
@@ -243,9 +260,9 @@ ffprobe -version
 
 任务和证据不会自动删除。历史任务页面会显示占用空间，并允许手动删除任务工作目录。删除任务记录不会删除媒体库或隔离区文件。
 
-## 7. 当前开发预览
+## 7. 当前实现状态
 
-当前代码已经可以作为 Python 库验证以下核心功能：
+当前版本已实现：
 
 - 文件名中的 CD/VR 标记解析；
 - MDC 资产组发现；
@@ -258,6 +275,12 @@ ffprobe -version
 - 扫描标签传播；
 - 隔离路径计算；
 - JSONL 读写。
+- 本地 Web 任务创建与历史任务加载；
+- 暂停、继续、安全取消和任务内断点续扫；
+- 分页、标签、状态、时长和分辨率筛选；
+- PaddleOCR GPU 批量识别；
+- 资产组及整目录隔离与恢复；
+- 历史任务日志和证据删除。
 
 运行全部测试：
 
@@ -265,7 +288,7 @@ ffprobe -version
 .venv\Scripts\python -m pytest
 ```
 
-当前还没有面向用户的扫描命令或完整 Web 服务，因此不要对正式媒体库执行手工 Python 调用。
+当前仍未实现邮件等外部通知，也没有永久删除功能。隔离区内容需要用户人工确认和清理。
 
 ## 8. 常见问题
 
@@ -314,4 +337,3 @@ python3.11 -m venv .venv
 ```
 
 CUDA OCR 和 Windows 资源管理器集成必须在 Windows + NVIDIA 环境中验证。
-

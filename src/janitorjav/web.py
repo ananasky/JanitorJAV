@@ -80,6 +80,16 @@ def create_app(manager: TaskManager) -> FastAPI:
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
+    @app.delete("/api/tasks/{task_id}")
+    def delete_task(task_id: str) -> dict[str, bool]:
+        try:
+            manager.delete_task(task_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+        return {"ok": True}
+
     @app.post("/api/tasks/{task_id}/pause")
     def pause_task(task_id: str) -> dict[str, Any]:
         try:

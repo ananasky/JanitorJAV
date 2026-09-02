@@ -18,7 +18,7 @@ JanitorJAV 是一个面向 JAV 媒体库的本地批量扫描与维护工具。
 - 本地 OCR 引擎协议和扫描标签管线；
 - 可恢复 JSONL 读写基础。
 
-Windows CUDA OCR、任务调度和 Web 审核界面仍在开发中。
+当前版本已经提供 Windows CUDA OCR、后台任务、Web 审核、资产/目录隔离和恢复。项目仍处于早期版本，首次扫描正式媒体库前建议先用小目录验证效果。
 
 ## 本地开发
 
@@ -29,6 +29,15 @@ py -3.11 -m venv .venv
 .venv\Scripts\python -m pip install -e ".[dev]"
 .venv\Scripts\python -m pytest
 ```
+
+Windows 完整环境安装与启动：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup-windows.ps1
+powershell -ExecutionPolicy Bypass -File scripts\start-background.ps1
+```
+
+随后在运行 JanitorJAV 的 Windows 主机上打开 <http://127.0.0.1:8765>。
 
 ## 文档
 

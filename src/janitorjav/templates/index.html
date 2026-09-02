@@ -48,11 +48,11 @@ async function createTask() {
 }
 async function loadTasks() {
   const tasks = await json('/api/tasks');
-  document.getElementById('tasks').innerHTML = tasks.map(t => `<tr><td>${t.created_at}</td><td>${escapeHtml(t.scan_root)}</td><td>${t.status}</td><td>${t.completed}/${t.discovered}</td><td><a class="button" href="/tasks/${t.task_id}">打开</a></td></tr>`).join('');
+  document.getElementById('tasks').innerHTML = tasks.map(t => `<tr><td>${t.created_at}</td><td>${escapeHtml(t.scan_root)}</td><td>${t.status}</td><td>${t.completed}/${t.discovered}</td><td><a class="button" href="/tasks/${t.task_id}">打开</a> <button onclick="deleteTask('${t.task_id}')">删除记录</button></td></tr>`).join('');
 }
+async function deleteTask(id){if(!confirm('只删除任务日志和证据，不影响媒体库或隔离区。确认？'))return;try{await json(`/api/tasks/${id}`,{method:'DELETE'});await loadTasks()}catch(e){alert(e.message)}}
 function escapeHtml(value) { const d=document.createElement('div'); d.textContent=value; return d.innerHTML; }
 loadTasks();
 </script>
 </body>
 </html>
-

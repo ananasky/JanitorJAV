@@ -63,3 +63,17 @@ def test_rejects_non_empty_quarantine(tmp_path: Path) -> None:
     assert response.status_code == 400
     assert "must be empty" in response.json()["detail"]
 
+
+def test_delete_completed_task_removes_workspace(tmp_path: Path) -> None:
+    scan_root = tmp_path / "JAV"
+    scan_root.mkdir()
+    manager = TaskManager(EmptyOCR(), workspace_root=tmp_path / "tasks")
+    client = TestClient(create_app(manager))
+    task = manager.create_task(scan_root)
+    workspace = task.workspace
+
+    response = client.delete(f"/api/tasks/{task.task_id}")
+
+    assert response.status_code == 200
+    assert not workspace.exists()
+    assert client.get("/api/tasks").json() == []

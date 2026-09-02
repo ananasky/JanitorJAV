@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -152,6 +153,14 @@ class TaskManager:
         self._save_task(task)
         return task
 
+    def delete_task(self, task_id: str) -> None:
+        task = self.get_task(task_id)
+        if task.status in {"running", "paused"}:
+            raise ValueError("Running or paused tasks cannot be deleted")
+        with self._lock:
+            self._tasks.pop(task_id, None)
+        shutil.rmtree(task.workspace)
+
     def assets(
         self,
         task_id: str,
@@ -189,8 +198,9 @@ class TaskManager:
         for record in latest.values():
             by_directory.setdefault(record.get("directory", ""), []).append(record)
         for record in values:
+            directory_value = record.get("directory", str(task.scan_root))
             record["directory_effect"] = _directory_effect(
-                Path(record["directory"]), by_directory.get(record["directory"], [])
+                Path(directory_value), by_directory.get(record.get("directory", ""), [])
             )
         total = len(values)
         start = max(0, (page - 1) * page_size)
@@ -374,6 +384,8 @@ class TaskManager:
         append_jsonl(task.workspace / "operations.jsonl", operation)
         updated = dict(record)
         updated["review_status"] = status.value
+        if status is ReviewStatus.QUARANTINE_FAILED and "changed since scan" in operation.get("error", "").casefold():
+            updated["tags"] = sorted(set(updated.get("tags", [])) | {"source_changed_since_scan"})
         updated["updated_at"] = _now()
         append_jsonl(task.workspace / "assets.jsonl", updated)
         return operation
@@ -429,6 +441,8 @@ class TaskManager:
                     for name in directories
                     if not (Path(root) / name).is_symlink()
                     and name.casefold() != task.quarantine_root.name.casefold()
+                    and name.casefold() not in IGNORED_SYSTEM_NAMES
+                    and not name.casefold().startswith("._")
                 ]
                 if any(Path(name).suffix.casefold() in DEFAULT_VIDEO_EXTENSIONS for name in files):
                     groups.extend(discover_asset_groups(Path(root)))
