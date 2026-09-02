@@ -7,5 +7,6 @@ if (-not (Test-Path $Python)) {
 }
 
 Set-Location $ProjectRoot
+$env:PADDLE_PDX_MODEL_SOURCE = "BOS"
 & $Python -m janitorjav.cli @args
 
