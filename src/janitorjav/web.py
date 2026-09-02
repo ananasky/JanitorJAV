@@ -76,6 +76,15 @@ def create_app(manager: TaskManager) -> FastAPI:
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
+    @app.post("/api/tasks/{task_id}/pause")
+    def pause_task(task_id: str) -> dict[str, Any]:
+        try:
+            return manager.pause_task(task_id).to_dict()
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+
     @app.get("/api/tasks/{task_id}/assets")
     def list_assets(
         task_id: str,
@@ -84,6 +93,10 @@ def create_app(manager: TaskManager) -> FastAPI:
         tagged_only: bool = True,
         tag: str | None = None,
         status: str | None = None,
+        min_duration: float | None = None,
+        max_duration: float | None = None,
+        min_width: int | None = None,
+        min_height: int | None = None,
     ) -> dict[str, Any]:
         try:
             return manager.assets(
@@ -93,6 +106,10 @@ def create_app(manager: TaskManager) -> FastAPI:
                 tagged_only=tagged_only,
                 tag=tag,
                 status=status,
+                min_duration=min_duration,
+                max_duration=max_duration,
+                min_width=min_width,
+                min_height=min_height,
             )
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
@@ -109,6 +126,13 @@ def create_app(manager: TaskManager) -> FastAPI:
     def quarantine_assets(task_id: str, payload: AssetActionRequest) -> dict[str, Any]:
         try:
             return {"operations": manager.quarantine_assets(task_id, payload.asset_ids)}
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.post("/api/tasks/{task_id}/restore")
+    def restore_assets(task_id: str, payload: AssetActionRequest) -> dict[str, Any]:
+        try:
+            return {"operations": manager.restore_assets(task_id, payload.asset_ids)}
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
@@ -149,4 +173,3 @@ def _is_inside(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
-

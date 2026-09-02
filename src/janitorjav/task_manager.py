@@ -48,6 +48,7 @@ class TaskState:
     current_file: str | None = None
     error: str | None = None
     stop_requested: bool = False
+    pause_requested: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -104,6 +105,11 @@ class TaskManager:
     def start_task(self, task_id: str) -> TaskState:
         task = self.get_task(task_id)
         with self._lock:
+            if task.status == "paused":
+                task.pause_requested = False
+                task.status = "running"
+                self._save_task(task)
+                return task
             if task.status == "running":
                 return task
             if task.status not in {"created", "cancelled", "failed"}:
@@ -116,6 +122,14 @@ class TaskManager:
             thread = threading.Thread(target=self._scan, args=(task,), daemon=True)
             self._threads[task_id] = thread
             thread.start()
+        return task
+
+    def pause_task(self, task_id: str) -> TaskState:
+        task = self.get_task(task_id)
+        if task.status != "running":
+            raise ValueError(f"Task cannot pause from status {task.status}")
+        task.pause_requested = True
+        self._save_task(task)
         return task
 
     def cancel_task(self, task_id: str) -> TaskState:
@@ -133,6 +147,10 @@ class TaskManager:
         tagged_only: bool = True,
         tag: str | None = None,
         status: str | None = None,
+        min_duration: float | None = None,
+        max_duration: float | None = None,
+        min_width: int | None = None,
+        min_height: int | None = None,
     ) -> dict[str, Any]:
         task = self.get_task(task_id)
         records = list(read_jsonl(task.workspace / "assets.jsonl"))
@@ -144,6 +162,14 @@ class TaskManager:
             values = [record for record in values if tag in record.get("tags", [])]
         if status:
             values = [record for record in values if record.get("review_status") == status]
+        if min_duration is not None:
+            values = [record for record in values if (record.get("total_duration_seconds") or 0) >= min_duration]
+        if max_duration is not None:
+            values = [record for record in values if (record.get("total_duration_seconds") or float("inf")) <= max_duration]
+        if min_width is not None:
+            values = [record for record in values if (record.get("max_width") or 0) >= min_width]
+        if min_height is not None:
+            values = [record for record in values if (record.get("max_height") or 0) >= min_height]
         values.sort(key=lambda record: (record.get("directory", "").casefold(), record.get("group_key", "").casefold()))
         total = len(values)
         start = max(0, (page - 1) * page_size)
@@ -173,10 +199,35 @@ class TaskManager:
             results.append(result)
         return results
 
+    def restore_assets(self, task_id: str, asset_ids: list[str]) -> list[dict[str, Any]]:
+        task = self.get_task(task_id)
+        latest = self._latest_assets(task)
+        operations = list(read_jsonl(task.workspace / "operations.jsonl"))
+        results: list[dict[str, Any]] = []
+        for asset_id in asset_ids:
+            record = latest.get(asset_id)
+            if not record or record.get("review_status") != ReviewStatus.QUARANTINED.value:
+                continue
+            source_operation = next(
+                (
+                    item
+                    for item in reversed(operations)
+                    if item.get("asset_id") == asset_id
+                    and item.get("operation_type", "quarantine") == "quarantine"
+                    and item.get("status") == "completed"
+                ),
+                None,
+            )
+            if source_operation is None:
+                continue
+            result = self._restore_record(task, record, source_operation)
+            results.append(result)
+        return results
+
     def _move_record(self, task: TaskState, record: dict[str, Any]) -> dict[str, Any]:
         files = [Path(value) for value in record.get("files", [])]
         expected = record.get("snapshots", {})
-        operation = {"asset_id": record["asset_id"], "started_at": _now(), "files": [], "status": "running"}
+        operation = {"asset_id": record["asset_id"], "operation_type": "quarantine", "started_at": _now(), "files": [], "status": "running"}
         moved: list[tuple[Path, Path]] = []
         try:
             for source in files:
@@ -212,6 +263,46 @@ class TaskManager:
         append_jsonl(task.workspace / "assets.jsonl", updated)
         return operation
 
+    def _restore_record(
+        self,
+        task: TaskState,
+        record: dict[str, Any],
+        source_operation: dict[str, Any],
+    ) -> dict[str, Any]:
+        operation = {"asset_id": record["asset_id"], "operation_type": "restore", "started_at": _now(), "files": [], "status": "running"}
+        moved: list[tuple[Path, Path]] = []
+        try:
+            pairs = [(Path(item["target"]), Path(item["source"])) for item in source_operation["files"]]
+            for quarantine_path, original_path in pairs:
+                if not quarantine_path.is_file():
+                    raise RuntimeError(f"Quarantined file is missing: {quarantine_path}")
+                if original_path.exists():
+                    raise RuntimeError(f"Restore target exists: {original_path}")
+            for quarantine_path, original_path in pairs:
+                original_path.parent.mkdir(parents=True, exist_ok=True)
+                quarantine_path.replace(original_path)
+                moved.append((quarantine_path, original_path))
+                operation["files"].append({"source": str(quarantine_path), "target": str(original_path), "status": "restored"})
+            operation["status"] = "completed"
+            status = ReviewStatus.RESTORED
+        except Exception as error:
+            operation["error"] = str(error)
+            operation["status"] = "failed"
+            for quarantine_path, original_path in reversed(moved):
+                try:
+                    quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+                    original_path.replace(quarantine_path)
+                except OSError as rollback_error:
+                    operation.setdefault("rollback_errors", []).append(str(rollback_error))
+            status = ReviewStatus.QUARANTINE_FAILED
+        operation["completed_at"] = _now()
+        append_jsonl(task.workspace / "operations.jsonl", operation)
+        updated = dict(record)
+        updated["review_status"] = status.value
+        updated["updated_at"] = _now()
+        append_jsonl(task.workspace / "assets.jsonl", updated)
+        return operation
+
     def _scan(self, task: TaskState) -> None:
         try:
             groups = []
@@ -226,16 +317,26 @@ class TaskManager:
                     groups.extend(discover_asset_groups(Path(root)))
             task.discovered = len(groups)
             self._save_task(task)
-            completed_ids = set(self._latest_assets(task))
+            completed_assets = self._latest_assets(task)
+            completed_ids = set(completed_assets)
+            task.completed = len(completed_ids)
+            task.tagged = sum(bool(record.get("tags")) for record in completed_assets.values())
             pipeline = ScanPipeline(FFmpegTools(), self.ocr_engine, task.workspace / "evidence")
             for group in groups:
                 asset_id = stable_asset_id(group)
                 if asset_id in completed_ids:
-                    task.completed += 1
                     continue
                 if task.stop_requested:
                     task.status = "cancelled"
                     break
+                while task.pause_requested and not task.stop_requested:
+                    task.status = "paused"
+                    self._save_task(task)
+                    time.sleep(0.25)
+                if task.stop_requested:
+                    task.status = "cancelled"
+                    break
+                task.status = "running"
                 task.current_file = str(group.directory / group.group_key)
                 self._save_task(task)
                 pipeline.scan_group(group)
@@ -291,4 +392,3 @@ class TaskManager:
                 self._tasks[task.task_id] = task
             except (OSError, KeyError, ValueError, json.JSONDecodeError):
                 continue
-
