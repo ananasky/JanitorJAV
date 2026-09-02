@@ -54,7 +54,7 @@ def test_pages_render(tmp_path: Path) -> None:
     assert 'a.flagged' in response.text
     assert 'id="page-jump"' in response.text
     assert '>跳转</button>' in response.text
-    assert '执行全部已标记隔离' in response.text
+    assert '执行全部待隔离' in response.text
     assert 'reviewOne' in response.text
     assert 'data-list-status="pending"' in response.text
     assert 'data-list-status="keep"' in response.text
@@ -63,6 +63,9 @@ def test_pages_render(tmp_path: Path) -> None:
     assert 'removeReviewed' in response.text
     assert 'class="toolbar review-toolbar"' in response.text
     assert '.review-toolbar { position:sticky' in response.text
+    assert 'id="quarantine-selected"' in response.text
+    assert 'updateActionControls' in response.text
+    assert '所选记录尚未标记为待隔离' in response.text
 
 
 def test_rejects_non_empty_quarantine(tmp_path: Path) -> None:

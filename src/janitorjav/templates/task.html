@@ -14,6 +14,7 @@
     .evidence-summary { margin:8px 0; padding:8px 10px; background:#111827; border-radius:7px; } .evidence-summary b { color:#fca5a5; } .row-actions { display:flex; flex-direction:column; gap:5px; } .keep { background:#047857; }
     .tabs { display:flex; gap:6px; margin:12px 0; } .tabs button { background:#374151; } .tabs button.active { background:#2563eb; }
     .review-toolbar { position:sticky; top:0; z-index:100; box-shadow:0 8px 18px rgba(0,0,0,.35); }
+    [hidden] { display:none !important; }
     .muted { color:#9ca3af; } .frames a { margin-right:8px; } .frames a.flagged { color:#f87171; font-weight:700; } dialog { max-width:92vw; max-height:92vh; background:#111827; color:#fff; border:1px solid #4b5563; }
     dialog img { max-width:85vw; max-height:70vh; display:block; margin:auto; } pre { white-space:pre-wrap; }
   </style>
@@ -36,8 +37,8 @@
     <input id="min-width" type="number" placeholder="最小宽度" onchange="loadAssets(1)"><input id="min-height" type="number" placeholder="最小高度" onchange="loadAssets(1)">
     <span id="task-controls"></span>
     <button id="selection-toggle" onclick="togglePageSelection()">整页全选</button>
-    <button onclick="review('keep')">批量保留</button><button onclick="review('ready_to_quarantine')">批量标记隔离</button>
-    <button class="danger" onclick="quarantine()">隔离所选</button><button class="danger" onclick="quarantineReady()">执行全部已标记隔离</button><button onclick="restore()">恢复</button>
+    <button id="batch-keep" onclick="review('keep')">批量保留</button><button id="batch-mark" onclick="review('ready_to_quarantine')">批量标记隔离</button>
+    <button id="quarantine-selected" class="danger" onclick="quarantine()" hidden>执行所选隔离</button><button id="quarantine-all" class="danger" onclick="quarantineReady()" hidden>执行全部待隔离</button><button id="restore-selected" onclick="restore()" hidden>恢复所选</button>
   </div>
   <div id="assets"></div><div class="toolbar" id="pager"></div>
   <dialog id="preview"><button onclick="preview.close()">关闭</button><img id="preview-image"><pre id="preview-text"></pre></dialog>
@@ -62,7 +63,8 @@ async function loadAssets(page=currentPage){
 }
 function setList(status){document.getElementById('status-filter').value=status; loadAssets(1);}
 function statusFilterChanged(){loadAssets(1);}
-function updateListTabs(counts){const status=document.getElementById('status-filter').value; document.querySelectorAll('[data-list-status]').forEach(button=>button.classList.toggle('active',button.dataset.listStatus===status)); for(const key of ['pending','keep','ready_to_quarantine'])document.getElementById(`count-${key}`).textContent=`(${counts[key]||0})`;}
+function updateListTabs(counts){const status=document.getElementById('status-filter').value; document.querySelectorAll('[data-list-status]').forEach(button=>button.classList.toggle('active',button.dataset.listStatus===status)); for(const key of ['pending','keep','ready_to_quarantine'])document.getElementById(`count-${key}`).textContent=`(${counts[key]||0})`; updateActionControls(status);}
+function updateActionControls(status){document.getElementById('batch-keep').hidden=!['pending','ready_to_quarantine'].includes(status); document.getElementById('batch-mark').hidden=!['pending','keep'].includes(status); document.getElementById('quarantine-selected').hidden=status!=='ready_to_quarantine'; document.getElementById('quarantine-all').hidden=status!=='ready_to_quarantine'; document.getElementById('restore-selected').hidden=status!=='quarantined';}
 function renderCurrentBatch(){document.getElementById('assets').innerHTML=currentItems.map(renderAsset).join('')||'<div class="summary">本批已处理完成，不会自动补充记录。<button onclick="loadAssets(1)">加载下一批</button></div>'; updateSelectionToggle();}
 function removeReviewed(ids,targetStatus){const requested=new Set(ids); const moved=new Set(); for(const item of currentItems){if(!requested.has(item.asset_id)||item.review_status===targetStatus)continue; moved.add(item.asset_id); const old=item.review_status; currentStatusCounts[old]=Math.max(0,(currentStatusCounts[old]||0)-1); currentStatusCounts[targetStatus]=(currentStatusCounts[targetStatus]||0)+1;} currentItems=currentItems.filter(item=>!moved.has(item.asset_id)); updateListTabs(currentStatusCounts); renderCurrentBatch();}
 function goToPage(pages){const input=document.getElementById('page-jump'); const page=Math.max(1,Math.min(pages,Number.parseInt(input.value,10)||1)); loadAssets(page);}
@@ -73,7 +75,7 @@ function updateSelectionToggle(){const boxes=[...document.querySelectorAll('.pic
 function togglePageSelection(){const boxes=[...document.querySelectorAll('.pick')]; const allSelected=boxes.length>0&&boxes.every(x=>x.checked); boxes.forEach(x=>x.checked=!allSelected); updateSelectionToggle();}
 async function review(status){const ids=selected(); if(!ids.length)return alert('请先选择项目'); await api(`/api/tasks/${taskId}/review`,{method:'POST',body:JSON.stringify({asset_ids:ids,status})}); removeReviewed(ids,status);}
 async function reviewOne(assetId,status){await api(`/api/tasks/${taskId}/review`,{method:'POST',body:JSON.stringify({asset_ids:[assetId],status})}); removeReviewed([assetId],status);}
-async function quarantine(){const ids=selected(); if(!ids.length)return alert('请先选择项目'); if(!confirm(`确认隔离 ${ids.length} 个审核单元？`))return; const d=await api(`/api/tasks/${taskId}/quarantine`,{method:'POST',body:JSON.stringify({asset_ids:ids})}); alert(`完成 ${d.operations.length} 个操作`); await loadAssets();}
+async function quarantine(){const ids=selected(); if(!ids.length)return alert('请先选择项目'); if(!confirm(`确认隔离 ${ids.length} 个审核单元？`))return; const d=await api(`/api/tasks/${taskId}/quarantine`,{method:'POST',body:JSON.stringify({asset_ids:ids})}); if(!d.operations.length)return alert('完成 0 个：所选记录尚未标记为待隔离，或状态已经变化。'); const completed=d.operations.filter(x=>x.status==='completed').map(x=>x.asset_id); const failed=d.operations.length-completed.length; removeReviewed(completed,'quarantined'); alert(`完成 ${completed.length} 个，失败 ${failed} 个`);}
 async function quarantineReady(){const query=await api(`/api/tasks/${taskId}/assets?page=1&page_size=1&tagged_only=false&status=ready_to_quarantine`); if(!query.total)return alert('没有已标记待隔离的记录'); if(!confirm(`确认执行全部 ${query.total} 个已标记隔离的审核单元？\n文件将被移动到隔离区。`))return; const d=await api(`/api/tasks/${taskId}/quarantine-ready`,{method:'POST'}); const failed=d.operations.filter(x=>x.status!=='completed').length; alert(`完成 ${d.operations.length-failed} 个，失败 ${failed} 个`); await loadAssets();}
 async function restore(){const ids=selected(); if(!ids.length)return alert('请先选择项目'); if(!confirm(`确认恢复 ${ids.length} 个审核单元？`))return; const d=await api(`/api/tasks/${taskId}/restore`,{method:'POST',body:JSON.stringify({asset_ids:ids})}); alert(`完成 ${d.operations.length} 个操作`); await loadAssets();}
 async function restoreAsset(assetId){if(!confirm('确认恢复这个资产组？'))return; const d=await api(`/api/tasks/${taskId}/restore`,{method:'POST',body:JSON.stringify({asset_ids:[assetId]})}); alert(`完成 ${d.operations.length} 个操作`); await loadAssets();}
