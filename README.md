@@ -8,7 +8,7 @@ JanitorJAV 是一个面向 JAV 媒体库的本地批量扫描与维护工具。
 
 ## 当前状态
 
-项目已进入开发阶段。当前已完成第一批可测试的扫描核心：
+当前已提供 Windows 本地扫描与人工审核工作流：
 
 - MDC 资产、CD 和 VR 文件名解析及分组；
 - 固定秒数与百分位抽帧点计算；
@@ -17,8 +17,14 @@ JanitorJAV 是一个面向 JAV 媒体库的本地批量扫描与维护工具。
 - ffprobe 元数据和 FFmpeg 抽帧适配层；
 - 本地 OCR 引擎协议和扫描标签管线；
 - 可恢复 JSONL 读写基础。
+- 可配置视频并行数（1–8）、风险分排序和去重 OCR 摘要；
+- 待处理、保留、待隔离三个列表，单条/批量审核和跳页；
+- 路径、OCR 关键词、时长及分辨率筛选，跨页按分数或 OCR 关键词选择；
+- 后台批量隔离进度、失败项详情及浏览器刷新后恢复进度显示（服务需保持运行）。
 
 当前版本已经提供 Windows CUDA OCR、后台任务、Web 审核、资产/目录隔离和恢复。项目仍处于早期版本，首次扫描正式媒体库前建议先用小目录验证效果。
+
+200 分是关键词规则标记，不代表无误判或 100% 广告概率。当前关键词评分仍依赖地址候选；详细规则、限制和安全操作见使用指南。
 
 ## 本地开发
 
@@ -44,3 +50,4 @@ powershell -ExecutionPolicy Bypass -File scripts\start-background.ps1
 - [V1 产品与技术规格](docs/v1-specification.md)
 - [V1 需求访谈记录](docs/requirements-interview-log.md)
 - [使用指南](docs/user-guide.md)
+- [更新记录](docs/changelog.md)
