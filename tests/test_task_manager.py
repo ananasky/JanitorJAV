@@ -16,6 +16,30 @@ class EmptyOCR:
         return [[] for _ in image_paths]
 
 
+def test_files_only_scan_preserves_groups_without_media_processing(tmp_path: Path, monkeypatch) -> None:
+    def forbidden(*args, **kwargs):
+        raise AssertionError("File-only mode must not probe, extract or OCR")
+
+    monkeypatch.setattr(task_manager_module.FFmpegTools, "probe", forbidden)
+    monkeypatch.setattr(EmptyOCR, "recognize", forbidden)
+    scan = tmp_path / "JAV"
+    scan.mkdir()
+    for stem in ("ABC-CD1", "ABC-CD2", "DEF"):
+        (scan / f"{stem}.mp4").write_bytes(b"not a video")
+        (scan / f"{stem}.nfo").write_text("info")
+    manager = TaskManager(EmptyOCR(), workspace_root=tmp_path / "tasks")
+    task = manager.create_task(scan, files_only=True)
+    manager.start_task(task.task_id)
+    manager._threads[task.task_id].join(timeout=5)
+    assert task.status == "completed"
+    items = manager.assets(task.task_id, tagged_only=False)["items"]
+    assert len(items) == 2
+    assert sum(len(item["files"]) for item in items) == 6
+    assert all(not video["frames"] for item in items for video in item["videos"])
+    reloaded = TaskManager(EmptyOCR(), workspace_root=tmp_path / "tasks")
+    assert reloaded.get_task(task.task_id).files_only is True
+
+
 def test_task_video_workers_are_persisted(tmp_path: Path) -> None:
     scan = tmp_path / "JAV"
     scan.mkdir()

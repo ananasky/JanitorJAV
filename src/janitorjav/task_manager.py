@@ -55,6 +55,7 @@ class TaskState:
     quarantine_root: Path
     workspace: Path
     video_workers: int = 1
+    files_only: bool = False
     status: str = "created"
     created_at: str = field(default_factory=_now)
     started_at: str | None = None
@@ -75,6 +76,7 @@ class TaskState:
             "quarantine_root": str(self.quarantine_root),
             "workspace": str(self.workspace),
             "video_workers": self.video_workers,
+            "files_only": self.files_only,
             "status": self.status,
             "created_at": self.created_at,
             "started_at": self.started_at,
@@ -111,7 +113,7 @@ class TaskManager:
         self._lock = threading.RLock()
         self._load_tasks()
 
-    def create_task(self, scan_root: Path, *, video_workers: int | None = None) -> TaskState:
+    def create_task(self, scan_root: Path, *, video_workers: int | None = None, files_only: bool = False) -> TaskState:
         scan_root = scan_root.resolve()
         selected_workers = self.default_video_workers if video_workers is None else video_workers
         if not 1 <= selected_workers <= 8:
@@ -120,7 +122,7 @@ class TaskManager:
         task_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
         workspace = self.workspace_root / task_id
         workspace.mkdir(parents=True)
-        task = TaskState(task_id, scan_root, quarantine, workspace, video_workers=selected_workers)
+        task = TaskState(task_id, scan_root, quarantine, workspace, video_workers=selected_workers, files_only=files_only)
         with self._lock:
             self._tasks[task_id] = task
             self._save_task(task)
@@ -680,7 +682,7 @@ class TaskManager:
                 FFmpegTools(),
                 self.ocr_engine,
                 task.workspace / "evidence",
-                config=ScanPipelineConfig(frame_workers=self.frame_workers),
+                config=ScanPipelineConfig(frame_workers=self.frame_workers, files_only=task.files_only),
             )
             pending_groups = [group for group in groups if stable_asset_id(group) not in completed_ids]
             for batch_start in range(0, len(pending_groups), task.video_workers):
@@ -745,6 +747,7 @@ class TaskManager:
                     quarantine_root=Path(payload["quarantine_root"]),
                     workspace=Path(payload["workspace"]),
                     video_workers=payload.get("video_workers", self.default_video_workers),
+                    files_only=payload.get("files_only", False),
                     status=payload["status"],
                     created_at=payload["created_at"],
                     started_at=payload.get("started_at"),

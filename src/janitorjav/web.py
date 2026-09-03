@@ -15,6 +15,7 @@ from .task_manager import TaskManager
 
 
 class CreateTaskRequest(BaseModel):
+    files_only: bool = False
     scan_root: str
     video_workers: int = Field(default=1, ge=1, le=8)
 
@@ -55,7 +56,7 @@ def create_app(manager: TaskManager) -> FastAPI:
     def create_task(payload: CreateTaskRequest) -> dict[str, Any]:
         try:
             return manager.create_task(
-                Path(payload.scan_root), video_workers=payload.video_workers
+                Path(payload.scan_root), video_workers=payload.video_workers, files_only=payload.files_only
             ).to_dict()
         except (OSError, ValueError) as error:
             raise HTTPException(400, str(error)) from error

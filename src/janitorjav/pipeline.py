@@ -15,6 +15,7 @@ from .sampling import calculate_sample_points
 
 @dataclass(frozen=True, slots=True)
 class ScanPipelineConfig:
+    files_only: bool = False
     high_confidence_threshold: float = 0.75
     short_video_seconds: float = 180.0
     frame_workers: int = 4
@@ -41,6 +42,9 @@ class ScanPipeline:
         self._ocr_lock = threading.Lock()
 
     def scan_group(self, group: AssetGroup) -> AssetGroup:
+        if self.config.files_only:
+            self._propagate_tags(group)
+            return group
         if group.is_vr:
             for video in group.videos:
                 self._probe(video, apply_short_rule=False)
