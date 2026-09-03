@@ -45,7 +45,10 @@ def test_pages_render(tmp_path: Path) -> None:
     client = TestClient(create_app(manager))
     task = manager.create_task(scan_root)
 
-    assert client.get("/").status_code == 200
+    home = client.get("/")
+    assert home.status_code == 200
+    assert 'id="files-only" type="checkbox" style=' in home.text
+    assert 'id="files-only" type="checkbox" checked' not in home.text
     response = client.get(f"/tasks/{task.task_id}")
     assert response.status_code == 200
     assert task.task_id in response.text

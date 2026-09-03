@@ -25,7 +25,7 @@
     <label>视频并行数 <input id="video-workers" type="number" min="1" max="8" value="1" style="width:80px"></label>
     <span class="muted">（1–8；同时处理的视频数量）</span>
     <button onclick="createTask()">创建任务</button>
-    <p><label><input id="files-only" type="checkbox" checked style="width:auto">临时：仅扫描文件（不探测时长、不抽帧、不 OCR）</label></p>
+    <p><label><input id="files-only" type="checkbox" style="width:auto">仅扫描文件（不探测时长、不抽帧、不 OCR）</label></p>
     <p id="create-error" class="error"></p>
   </section>
   <section class="card">
